@@ -39,17 +39,42 @@ from kvxfer.solvers.whitened import clear_design_cache, solve_whitened
 from kvxfer.stats import GramStats
 
 
+def choose_layers(
+    fit_stats: GramStats,
+    val_stats: GramStats,
+    n_target_layers: int,
+    k: int,
+    lam: float,
+    n_candidates: int,
+    label: str,
+) -> dict[int, tuple[int, ...]]:
+    """Select source layers per target layer, once, out of sample.
+
+    The selection is deliberately shared by every solver variant. If each
+    variant chose its own layers, a difference in retention would confound the
+    objective with the selection, and the objective is the thing under test.
+    Selection uses the isotropic fit so that the baseline is not disadvantaged
+    by being scored against a choice made for someone else.
+    """
+    chosen: dict[int, tuple[int, ...]] = {}
+    for layer in range(n_target_layers):
+        chosen[layer] = select_source_layers(
+            fit_stats, val_stats, layer, k=k, lam=lam, n_candidates=n_candidates
+        )
+        print(f"  [{label}] L{layer:02d} <- {chosen[layer]}", flush=True)
+    return chosen
+
+
 def fit_all_layers(
     fit_stats: GramStats,
     val_stats: GramStats,
     target_geom,
     metrics: HeadMetrics | None,
-    k: int,
+    selection: dict[int, tuple[int, ...]],
     lam: float,
-    n_candidates: int,
     label: str,
 ) -> tuple[dict, dict]:
-    """Fit one map per target layer, selecting source layers out of sample.
+    """Fit one map per target layer on a fixed layer selection.
 
     Returns:
         ``(maps, diagnostics)`` keyed by target layer.
@@ -58,9 +83,7 @@ def fit_all_layers(
     diagnostics: dict[int, dict] = {}
 
     for layer in range(target_geom.n_layers):
-        selected = select_source_layers(
-            fit_stats, val_stats, layer, k=k, lam=lam, n_candidates=n_candidates
-        )
+        selected = selection[layer]
         if metrics is None:
             fit = solve_ridge(fit_stats, selected, layer, lam=lam)
         else:
@@ -80,8 +103,8 @@ def fit_all_layers(
             "held_out_r2": round(float(held_out_r2(val_stats, fit).mean()), 4),
         }
         print(
-            f"  [{label}] L{layer:02d} <- {selected}  "
-            f"in-sample R2={fit.r2:.3f}  held-out R2={diagnostics[layer]['held_out_r2']:.3f}",
+            f"  [{label}] L{layer:02d} in-sample R2={fit.r2:.3f}  "
+            f"held-out R2={diagnostics[layer]['held_out_r2']:.3f}",
             flush=True,
         )
 
@@ -146,16 +169,29 @@ def main() -> None:
     mappers: dict[str, object] = {"floor": ZeroMapper(target_geom)}
     diagnostics: dict[str, dict] = {}
 
+    # Selected once and shared, so the variants differ only in objective.
+    print("\nselecting source layers (out of sample, shared by all variants)")
+    selection = {
+        "keys": choose_layers(
+            stats["fit_keys"], stats["val_keys"], target_geom.n_layers,
+            args.k, args.lam, args.n_candidates, "select/K",
+        ),
+        "values": choose_layers(
+            stats["fit_values"], stats["val_values"], target_geom.n_layers,
+            args.k, args.lam, args.n_candidates, "select/V",
+        ),
+    }
+
     for name, (km, vm) in variants.items():
         print(f"\nfitting {name}")
         started = time.time()
         key_maps, key_diag = fit_all_layers(
             stats["fit_keys"], stats["val_keys"], target_geom, km,
-            args.k, args.lam, args.n_candidates, f"{name}/K",
+            selection["keys"], args.lam, f"{name}/K",
         )
         value_maps, value_diag = fit_all_layers(
             stats["fit_values"], stats["val_values"], target_geom, vm,
-            args.k, args.lam, args.n_candidates, f"{name}/V",
+            selection["values"], args.lam, f"{name}/V",
         )
         clear_design_cache()
         mappers[name] = FittedMapper(key_maps, value_maps, target_geom, label=name)
@@ -191,6 +227,10 @@ def main() -> None:
     out_dir = Path(args.out) / art.parent.name / art.name
     out_dir.mkdir(parents=True, exist_ok=True)
     payload = {
+        "layer_selection": {
+            kind: {str(l): list(v) for l, v in sel.items()}
+            for kind, sel in selection.items()
+        },
         "source": source_id,
         "target": target_id,
         "settings": vars(args),
