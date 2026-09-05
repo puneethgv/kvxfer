@@ -99,7 +99,7 @@ def harvest(
         source_geom, target_geom, kind=kind, source_layers=layers, device=device
     )
     if progress:
-        print(f"  accumulator: {accumulator.nbytes / 1024**3:.2f} GB on {device}")
+        print(f"  accumulator: {accumulator.nbytes / 1024**3:.2f} GB on {device}", flush=True)
 
     started = time.time()
     n_sequences = 0
