@@ -27,6 +27,7 @@ from pathlib import Path
 import torch
 
 from kvxfer.data import build_calibration
+from kvxfer.eval.ppl import evaluate_perplexity, paired_nll
 from kvxfer.eval.retention import evaluate_task
 from kvxfer.eval.tasks import load_task
 from kvxfer.geometry import load_geometry
@@ -123,7 +124,23 @@ def fit_all_layers(
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--artifacts", required=True, help="directory from calibrate.py")
-    parser.add_argument("--tasks", default="arc_easy,hellaswag")
+    parser.add_argument("--tasks", default="arc_easy,arc_challenge")
+    parser.add_argument(
+        "--ppl-documents",
+        type=int,
+        default=64,
+        help="documents for prefix-conditioned perplexity, the primary metric",
+    )
+    parser.add_argument("--ppl-seq-len", type=int, default=512)
+    parser.add_argument("--ppl-prefix", type=int, default=256)
+    parser.add_argument("--ppl-batch-size", type=int, default=4)
+    parser.add_argument(
+        "--calibration-sequences",
+        type=int,
+        default=640,
+        help="how many sequences calibration consumed; evaluation documents "
+        "skip past these so the two corpora stay disjoint",
+    )
     parser.add_argument("--limit", type=int, default=300)
     parser.add_argument("--k", type=int, default=4, help="source layers per target layer")
     parser.add_argument("--lam", type=float, default=1e-3)
@@ -220,6 +237,37 @@ def main() -> None:
 
     source_model = load_model(source_id, dtype=dtype)
 
+    # Perplexity first: it is the primary metric because it yields one
+    # measurement per token rather than one per item, which is the difference
+    # between resolving a mapper's effect and not.
+    print(
+        f"\nprefix-conditioned perplexity: {args.ppl_documents} documents, "
+        f"{args.ppl_prefix} prefix + {args.ppl_seq_len - args.ppl_prefix} scored tokens"
+    )
+    eval_docs = build_calibration(
+        tokenizer,
+        seq_len=args.ppl_seq_len,
+        n_sequences=args.ppl_documents,
+        skip=args.calibration_sequences,
+    )
+    ppl = evaluate_perplexity(
+        eval_docs.input_ids,
+        args.ppl_prefix,
+        target_model=target_model,
+        source_model=source_model,
+        mappers=mappers,
+        dtype=dtype,
+        batch_size=args.ppl_batch_size,
+    )
+    print()
+    for name, res in ppl.items():
+        print(
+            f"    {name:10s} ppl={res.perplexity:8.4f}  "
+            f"nll={res.mean_nll:.5f} +/- {res.stderr():.5f}"
+        )
+    if {"ridge", "whitened"} <= set(ppl):
+        print(f"    paired: {paired_nll(ppl['ridge'], ppl['whitened'])}")
+
     results = {}
     for task_name in args.tasks.split(","):
         print(f"\nevaluating {task_name} ({args.limit} items)")
@@ -249,6 +297,27 @@ def main() -> None:
     out_dir = Path(args.out) / art.parent.name / art.name
     out_dir.mkdir(parents=True, exist_ok=True)
     payload = {
+        "perplexity": {
+            name: {
+                "perplexity": res.perplexity,
+                "mean_nll": res.mean_nll,
+                "stderr": res.stderr(),
+                "n_tokens": res.n_tokens,
+                "document_nll": res.document_nll,
+            }
+            for name, res in ppl.items()
+        },
+        "perplexity_paired_ridge_vs_whitened": (
+            {
+                "mean_difference": paired_nll(ppl["ridge"], ppl["whitened"]).mean_difference,
+                "stderr": paired_nll(ppl["ridge"], ppl["whitened"]).stderr,
+                "t_statistic": paired_nll(ppl["ridge"], ppl["whitened"]).t_statistic,
+                "n_documents": paired_nll(ppl["ridge"], ppl["whitened"]).n_documents,
+                "n_better": paired_nll(ppl["ridge"], ppl["whitened"]).n_better,
+            }
+            if {"ridge", "whitened"} <= set(ppl)
+            else None
+        ),
         "layer_selection": {
             kind: {str(l): list(v) for l, v in sel.items()}
             for kind, sel in selection.items()

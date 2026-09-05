@@ -1,0 +1,1573 @@
+{
+  "layer_selection": {
+    "keys": {
+      "0": [
+        0,
+        2,
+        4,
+        6
+      ],
+      "1": [
+        2,
+        4,
+        6,
+        20
+      ],
+      "2": [
+        2,
+        4,
+        6,
+        20
+      ],
+      "3": [
+        2,
+        4,
+        6,
+        8
+      ],
+      "4": [
+        2,
+        4,
+        6,
+        8
+      ],
+      "5": [
+        4,
+        6,
+        8,
+        10
+      ],
+      "6": [
+        6,
+        8,
+        10,
+        18
+      ],
+      "7": [
+        6,
+        8,
+        10,
+        18
+      ],
+      "8": [
+        8,
+        10,
+        12,
+        18
+      ],
+      "9": [
+        10,
+        12,
+        14,
+        18
+      ],
+      "10": [
+        10,
+        12,
+        14,
+        18
+      ],
+      "11": [
+        12,
+        14,
+        16,
+        18
+      ],
+      "12": [
+        12,
+        14,
+        16,
+        18
+      ],
+      "13": [
+        12,
+        14,
+        16,
+        18
+      ],
+      "14": [
+        12,
+        14,
+        16,
+        18
+      ],
+      "15": [
+        12,
+        14,
+        16,
+        18
+      ],
+      "16": [
+        14,
+        16,
+        18,
+        20
+      ],
+      "17": [
+        14,
+        16,
+        18,
+        20
+      ],
+      "18": [
+        14,
+        16,
+        18,
+        20
+      ],
+      "19": [
+        16,
+        18,
+        20,
+        22
+      ],
+      "20": [
+        16,
+        18,
+        20,
+        22
+      ],
+      "21": [
+        18,
+        20,
+        22,
+        24
+      ],
+      "22": [
+        18,
+        20,
+        22,
+        24
+      ],
+      "23": [
+        20,
+        22,
+        24,
+        26
+      ],
+      "24": [
+        20,
+        22,
+        24,
+        26
+      ],
+      "25": [
+        20,
+        22,
+        24,
+        26
+      ],
+      "26": [
+        20,
+        22,
+        24,
+        26
+      ],
+      "27": [
+        20,
+        22,
+        24,
+        26
+      ]
+    },
+    "values": {
+      "0": [
+        0,
+        2,
+        4,
+        6
+      ],
+      "1": [
+        0,
+        2,
+        4,
+        6
+      ],
+      "2": [
+        2,
+        4,
+        6,
+        20
+      ],
+      "3": [
+        2,
+        4,
+        6,
+        8
+      ],
+      "4": [
+        2,
+        4,
+        6,
+        8
+      ],
+      "5": [
+        4,
+        6,
+        8,
+        10
+      ],
+      "6": [
+        6,
+        8,
+        10,
+        12
+      ],
+      "7": [
+        6,
+        8,
+        10,
+        12
+      ],
+      "8": [
+        8,
+        10,
+        12,
+        14
+      ],
+      "9": [
+        8,
+        10,
+        12,
+        14
+      ],
+      "10": [
+        10,
+        12,
+        14,
+        16
+      ],
+      "11": [
+        12,
+        14,
+        16,
+        18
+      ],
+      "12": [
+        12,
+        14,
+        16,
+        18
+      ],
+      "13": [
+        12,
+        14,
+        16,
+        18
+      ],
+      "14": [
+        12,
+        14,
+        16,
+        18
+      ],
+      "15": [
+        12,
+        14,
+        16,
+        18
+      ],
+      "16": [
+        14,
+        16,
+        18,
+        20
+      ],
+      "17": [
+        14,
+        16,
+        18,
+        20
+      ],
+      "18": [
+        16,
+        18,
+        20,
+        22
+      ],
+      "19": [
+        16,
+        18,
+        20,
+        22
+      ],
+      "20": [
+        18,
+        20,
+        22,
+        24
+      ],
+      "21": [
+        20,
+        22,
+        24,
+        26
+      ],
+      "22": [
+        20,
+        22,
+        24,
+        26
+      ],
+      "23": [
+        20,
+        22,
+        24,
+        26
+      ],
+      "24": [
+        20,
+        22,
+        24,
+        26
+      ],
+      "25": [
+        20,
+        22,
+        24,
+        26
+      ],
+      "26": [
+        20,
+        22,
+        24,
+        26
+      ],
+      "27": [
+        20,
+        22,
+        24,
+        26
+      ]
+    }
+  },
+  "source": "Qwen/Qwen3-0.6B",
+  "target": "Qwen/Qwen3-1.7B",
+  "settings": {
+    "artifacts": "artifacts/qwen3-0.6b__to__qwen3-1.7b/web",
+    "tasks": "arc_easy,hellaswag",
+    "limit": 250,
+    "k": 4,
+    "lam": 0.001,
+    "n_candidates": 6,
+    "selection": "topk",
+    "metric_offset": 2048,
+    "query_sequences": 32,
+    "dtype": "float32",
+    "out": "results"
+  },
+  "n_fit_tokens": 131072,
+  "n_val_tokens": 32768,
+  "diagnostics": {
+    "ridge": {
+      "keys": {
+        "0": {
+          "source_layers": [
+            0,
+            2,
+            4,
+            6
+          ],
+          "in_sample_r2": 0.7588,
+          "held_out_r2": 0.7345
+        },
+        "1": {
+          "source_layers": [
+            2,
+            4,
+            6,
+            20
+          ],
+          "in_sample_r2": 0.7649,
+          "held_out_r2": 0.7459
+        },
+        "2": {
+          "source_layers": [
+            2,
+            4,
+            6,
+            20
+          ],
+          "in_sample_r2": 0.7878,
+          "held_out_r2": 0.7711
+        },
+        "3": {
+          "source_layers": [
+            2,
+            4,
+            6,
+            8
+          ],
+          "in_sample_r2": 0.6982,
+          "held_out_r2": 0.6749
+        },
+        "4": {
+          "source_layers": [
+            2,
+            4,
+            6,
+            8
+          ],
+          "in_sample_r2": 0.7317,
+          "held_out_r2": 0.7099
+        },
+        "5": {
+          "source_layers": [
+            4,
+            6,
+            8,
+            10
+          ],
+          "in_sample_r2": 0.7198,
+          "held_out_r2": 0.698
+        },
+        "6": {
+          "source_layers": [
+            6,
+            8,
+            10,
+            18
+          ],
+          "in_sample_r2": 0.7304,
+          "held_out_r2": 0.7114
+        },
+        "7": {
+          "source_layers": [
+            6,
+            8,
+            10,
+            18
+          ],
+          "in_sample_r2": 0.6942,
+          "held_out_r2": 0.6724
+        },
+        "8": {
+          "source_layers": [
+            8,
+            10,
+            12,
+            18
+          ],
+          "in_sample_r2": 0.6576,
+          "held_out_r2": 0.6338
+        },
+        "9": {
+          "source_layers": [
+            10,
+            12,
+            14,
+            18
+          ],
+          "in_sample_r2": 0.6528,
+          "held_out_r2": 0.628
+        },
+        "10": {
+          "source_layers": [
+            10,
+            12,
+            14,
+            18
+          ],
+          "in_sample_r2": 0.6667,
+          "held_out_r2": 0.6421
+        },
+        "11": {
+          "source_layers": [
+            12,
+            14,
+            16,
+            18
+          ],
+          "in_sample_r2": 0.6868,
+          "held_out_r2": 0.6647
+        },
+        "12": {
+          "source_layers": [
+            12,
+            14,
+            16,
+            18
+          ],
+          "in_sample_r2": 0.6719,
+          "held_out_r2": 0.6489
+        },
+        "13": {
+          "source_layers": [
+            12,
+            14,
+            16,
+            18
+          ],
+          "in_sample_r2": 0.6854,
+          "held_out_r2": 0.6636
+        },
+        "14": {
+          "source_layers": [
+            12,
+            14,
+            16,
+            18
+          ],
+          "in_sample_r2": 0.6476,
+          "held_out_r2": 0.6237
+        },
+        "15": {
+          "source_layers": [
+            12,
+            14,
+            16,
+            18
+          ],
+          "in_sample_r2": 0.6664,
+          "held_out_r2": 0.6445
+        },
+        "16": {
+          "source_layers": [
+            14,
+            16,
+            18,
+            20
+          ],
+          "in_sample_r2": 0.7048,
+          "held_out_r2": 0.6853
+        },
+        "17": {
+          "source_layers": [
+            14,
+            16,
+            18,
+            20
+          ],
+          "in_sample_r2": 0.7032,
+          "held_out_r2": 0.6826
+        },
+        "18": {
+          "source_layers": [
+            14,
+            16,
+            18,
+            20
+          ],
+          "in_sample_r2": 0.746,
+          "held_out_r2": 0.728
+        },
+        "19": {
+          "source_layers": [
+            16,
+            18,
+            20,
+            22
+          ],
+          "in_sample_r2": 0.7651,
+          "held_out_r2": 0.7478
+        },
+        "20": {
+          "source_layers": [
+            16,
+            18,
+            20,
+            22
+          ],
+          "in_sample_r2": 0.7456,
+          "held_out_r2": 0.7271
+        },
+        "21": {
+          "source_layers": [
+            18,
+            20,
+            22,
+            24
+          ],
+          "in_sample_r2": 0.7217,
+          "held_out_r2": 0.7017
+        },
+        "22": {
+          "source_layers": [
+            18,
+            20,
+            22,
+            24
+          ],
+          "in_sample_r2": 0.7299,
+          "held_out_r2": 0.7099
+        },
+        "23": {
+          "source_layers": [
+            20,
+            22,
+            24,
+            26
+          ],
+          "in_sample_r2": 0.735,
+          "held_out_r2": 0.7147
+        },
+        "24": {
+          "source_layers": [
+            20,
+            22,
+            24,
+            26
+          ],
+          "in_sample_r2": 0.7445,
+          "held_out_r2": 0.7242
+        },
+        "25": {
+          "source_layers": [
+            20,
+            22,
+            24,
+            26
+          ],
+          "in_sample_r2": 0.7483,
+          "held_out_r2": 0.7289
+        },
+        "26": {
+          "source_layers": [
+            20,
+            22,
+            24,
+            26
+          ],
+          "in_sample_r2": 0.7259,
+          "held_out_r2": 0.7052
+        },
+        "27": {
+          "source_layers": [
+            20,
+            22,
+            24,
+            26
+          ],
+          "in_sample_r2": 0.6131,
+          "held_out_r2": 0.5776
+        }
+      },
+      "values": {
+        "0": {
+          "source_layers": [
+            0,
+            2,
+            4,
+            6
+          ],
+          "in_sample_r2": 0.8261,
+          "held_out_r2": 0.8065
+        },
+        "1": {
+          "source_layers": [
+            0,
+            2,
+            4,
+            6
+          ],
+          "in_sample_r2": 0.7888,
+          "held_out_r2": 0.7674
+        },
+        "2": {
+          "source_layers": [
+            2,
+            4,
+            6,
+            20
+          ],
+          "in_sample_r2": 0.7438,
+          "held_out_r2": 0.7259
+        },
+        "3": {
+          "source_layers": [
+            2,
+            4,
+            6,
+            8
+          ],
+          "in_sample_r2": 0.6501,
+          "held_out_r2": 0.6192
+        },
+        "4": {
+          "source_layers": [
+            2,
+            4,
+            6,
+            8
+          ],
+          "in_sample_r2": 0.6601,
+          "held_out_r2": 0.6288
+        },
+        "5": {
+          "source_layers": [
+            4,
+            6,
+            8,
+            10
+          ],
+          "in_sample_r2": 0.6664,
+          "held_out_r2": 0.6379
+        },
+        "6": {
+          "source_layers": [
+            6,
+            8,
+            10,
+            12
+          ],
+          "in_sample_r2": 0.6027,
+          "held_out_r2": 0.5725
+        },
+        "7": {
+          "source_layers": [
+            6,
+            8,
+            10,
+            12
+          ],
+          "in_sample_r2": 0.5528,
+          "held_out_r2": 0.5174
+        },
+        "8": {
+          "source_layers": [
+            8,
+            10,
+            12,
+            14
+          ],
+          "in_sample_r2": 0.5584,
+          "held_out_r2": 0.5239
+        },
+        "9": {
+          "source_layers": [
+            8,
+            10,
+            12,
+            14
+          ],
+          "in_sample_r2": 0.5045,
+          "held_out_r2": 0.4673
+        },
+        "10": {
+          "source_layers": [
+            10,
+            12,
+            14,
+            16
+          ],
+          "in_sample_r2": 0.5404,
+          "held_out_r2": 0.504
+        },
+        "11": {
+          "source_layers": [
+            12,
+            14,
+            16,
+            18
+          ],
+          "in_sample_r2": 0.5883,
+          "held_out_r2": 0.5583
+        },
+        "12": {
+          "source_layers": [
+            12,
+            14,
+            16,
+            18
+          ],
+          "in_sample_r2": 0.5437,
+          "held_out_r2": 0.5057
+        },
+        "13": {
+          "source_layers": [
+            12,
+            14,
+            16,
+            18
+          ],
+          "in_sample_r2": 0.5434,
+          "held_out_r2": 0.5046
+        },
+        "14": {
+          "source_layers": [
+            12,
+            14,
+            16,
+            18
+          ],
+          "in_sample_r2": 0.508,
+          "held_out_r2": 0.4688
+        },
+        "15": {
+          "source_layers": [
+            12,
+            14,
+            16,
+            18
+          ],
+          "in_sample_r2": 0.5144,
+          "held_out_r2": 0.483
+        },
+        "16": {
+          "source_layers": [
+            14,
+            16,
+            18,
+            20
+          ],
+          "in_sample_r2": 0.5918,
+          "held_out_r2": 0.5648
+        },
+        "17": {
+          "source_layers": [
+            14,
+            16,
+            18,
+            20
+          ],
+          "in_sample_r2": 0.5832,
+          "held_out_r2": 0.5544
+        },
+        "18": {
+          "source_layers": [
+            16,
+            18,
+            20,
+            22
+          ],
+          "in_sample_r2": 0.6731,
+          "held_out_r2": 0.6497
+        },
+        "19": {
+          "source_layers": [
+            16,
+            18,
+            20,
+            22
+          ],
+          "in_sample_r2": 0.6978,
+          "held_out_r2": 0.6767
+        },
+        "20": {
+          "source_layers": [
+            18,
+            20,
+            22,
+            24
+          ],
+          "in_sample_r2": 0.6943,
+          "held_out_r2": 0.6709
+        },
+        "21": {
+          "source_layers": [
+            20,
+            22,
+            24,
+            26
+          ],
+          "in_sample_r2": 0.679,
+          "held_out_r2": 0.6531
+        },
+        "22": {
+          "source_layers": [
+            20,
+            22,
+            24,
+            26
+          ],
+          "in_sample_r2": 0.6871,
+          "held_out_r2": 0.6596
+        },
+        "23": {
+          "source_layers": [
+            20,
+            22,
+            24,
+            26
+          ],
+          "in_sample_r2": 0.6567,
+          "held_out_r2": 0.6266
+        },
+        "24": {
+          "source_layers": [
+            20,
+            22,
+            24,
+            26
+          ],
+          "in_sample_r2": 0.6675,
+          "held_out_r2": 0.6374
+        },
+        "25": {
+          "source_layers": [
+            20,
+            22,
+            24,
+            26
+          ],
+          "in_sample_r2": 0.6534,
+          "held_out_r2": 0.6216
+        },
+        "26": {
+          "source_layers": [
+            20,
+            22,
+            24,
+            26
+          ],
+          "in_sample_r2": 0.6448,
+          "held_out_r2": 0.6118
+        },
+        "27": {
+          "source_layers": [
+            20,
+            22,
+            24,
+            26
+          ],
+          "in_sample_r2": 0.491,
+          "held_out_r2": 0.4302
+        }
+      },
+      "fit_seconds": 62.1
+    },
+    "whitened": {
+      "keys": {
+        "0": {
+          "source_layers": [
+            0,
+            2,
+            4,
+            6
+          ],
+          "in_sample_r2": 0.7423,
+          "held_out_r2": 0.7205
+        },
+        "1": {
+          "source_layers": [
+            2,
+            4,
+            6,
+            20
+          ],
+          "in_sample_r2": 0.744,
+          "held_out_r2": 0.6764
+        },
+        "2": {
+          "source_layers": [
+            2,
+            4,
+            6,
+            20
+          ],
+          "in_sample_r2": 0.7827,
+          "held_out_r2": 0.7672
+        },
+        "3": {
+          "source_layers": [
+            2,
+            4,
+            6,
+            8
+          ],
+          "in_sample_r2": 0.6621,
+          "held_out_r2": 0.4717
+        },
+        "4": {
+          "source_layers": [
+            2,
+            4,
+            6,
+            8
+          ],
+          "in_sample_r2": 0.7169,
+          "held_out_r2": 0.6941
+        },
+        "5": {
+          "source_layers": [
+            4,
+            6,
+            8,
+            10
+          ],
+          "in_sample_r2": 0.7007,
+          "held_out_r2": 0.6816
+        },
+        "6": {
+          "source_layers": [
+            6,
+            8,
+            10,
+            18
+          ],
+          "in_sample_r2": 0.714,
+          "held_out_r2": 0.6514
+        },
+        "7": {
+          "source_layers": [
+            6,
+            8,
+            10,
+            18
+          ],
+          "in_sample_r2": 0.6609,
+          "held_out_r2": 0.3622
+        },
+        "8": {
+          "source_layers": [
+            8,
+            10,
+            12,
+            18
+          ],
+          "in_sample_r2": 0.6225,
+          "held_out_r2": 0.5647
+        },
+        "9": {
+          "source_layers": [
+            10,
+            12,
+            14,
+            18
+          ],
+          "in_sample_r2": 0.6093,
+          "held_out_r2": 0.3622
+        },
+        "10": {
+          "source_layers": [
+            10,
+            12,
+            14,
+            18
+          ],
+          "in_sample_r2": 0.6577,
+          "held_out_r2": 0.6324
+        },
+        "11": {
+          "source_layers": [
+            12,
+            14,
+            16,
+            18
+          ],
+          "in_sample_r2": 0.6647,
+          "held_out_r2": 0.5924
+        },
+        "12": {
+          "source_layers": [
+            12,
+            14,
+            16,
+            18
+          ],
+          "in_sample_r2": 0.6518,
+          "held_out_r2": 0.6041
+        },
+        "13": {
+          "source_layers": [
+            12,
+            14,
+            16,
+            18
+          ],
+          "in_sample_r2": 0.6678,
+          "held_out_r2": 0.6461
+        },
+        "14": {
+          "source_layers": [
+            12,
+            14,
+            16,
+            18
+          ],
+          "in_sample_r2": 0.6337,
+          "held_out_r2": 0.6001
+        },
+        "15": {
+          "source_layers": [
+            12,
+            14,
+            16,
+            18
+          ],
+          "in_sample_r2": 0.6459,
+          "held_out_r2": 0.622
+        },
+        "16": {
+          "source_layers": [
+            14,
+            16,
+            18,
+            20
+          ],
+          "in_sample_r2": 0.695,
+          "held_out_r2": 0.6769
+        },
+        "17": {
+          "source_layers": [
+            14,
+            16,
+            18,
+            20
+          ],
+          "in_sample_r2": 0.6931,
+          "held_out_r2": 0.6741
+        },
+        "18": {
+          "source_layers": [
+            14,
+            16,
+            18,
+            20
+          ],
+          "in_sample_r2": 0.7429,
+          "held_out_r2": 0.7264
+        },
+        "19": {
+          "source_layers": [
+            16,
+            18,
+            20,
+            22
+          ],
+          "in_sample_r2": 0.7438,
+          "held_out_r2": 0.7256
+        },
+        "20": {
+          "source_layers": [
+            16,
+            18,
+            20,
+            22
+          ],
+          "in_sample_r2": 0.7233,
+          "held_out_r2": 0.5477
+        },
+        "21": {
+          "source_layers": [
+            18,
+            20,
+            22,
+            24
+          ],
+          "in_sample_r2": 0.6587,
+          "held_out_r2": 0.4767
+        },
+        "22": {
+          "source_layers": [
+            18,
+            20,
+            22,
+            24
+          ],
+          "in_sample_r2": 0.6581,
+          "held_out_r2": 0.4701
+        },
+        "23": {
+          "source_layers": [
+            20,
+            22,
+            24,
+            26
+          ],
+          "in_sample_r2": 0.7021,
+          "held_out_r2": 0.6732
+        },
+        "24": {
+          "source_layers": [
+            20,
+            22,
+            24,
+            26
+          ],
+          "in_sample_r2": 0.7316,
+          "held_out_r2": 0.6952
+        },
+        "25": {
+          "source_layers": [
+            20,
+            22,
+            24,
+            26
+          ],
+          "in_sample_r2": 0.7137,
+          "held_out_r2": 0.6904
+        },
+        "26": {
+          "source_layers": [
+            20,
+            22,
+            24,
+            26
+          ],
+          "in_sample_r2": 0.6723,
+          "held_out_r2": 0.5741
+        },
+        "27": {
+          "source_layers": [
+            20,
+            22,
+            24,
+            26
+          ],
+          "in_sample_r2": 0.5567,
+          "held_out_r2": -0.1592
+        }
+      },
+      "values": {
+        "0": {
+          "source_layers": [
+            0,
+            2,
+            4,
+            6
+          ],
+          "in_sample_r2": 0.826,
+          "held_out_r2": 0.8064
+        },
+        "1": {
+          "source_layers": [
+            0,
+            2,
+            4,
+            6
+          ],
+          "in_sample_r2": 0.7888,
+          "held_out_r2": 0.7674
+        },
+        "2": {
+          "source_layers": [
+            2,
+            4,
+            6,
+            20
+          ],
+          "in_sample_r2": 0.7432,
+          "held_out_r2": 0.7254
+        },
+        "3": {
+          "source_layers": [
+            2,
+            4,
+            6,
+            8
+          ],
+          "in_sample_r2": 0.6501,
+          "held_out_r2": 0.6192
+        },
+        "4": {
+          "source_layers": [
+            2,
+            4,
+            6,
+            8
+          ],
+          "in_sample_r2": 0.66,
+          "held_out_r2": 0.6287
+        },
+        "5": {
+          "source_layers": [
+            4,
+            6,
+            8,
+            10
+          ],
+          "in_sample_r2": 0.6664,
+          "held_out_r2": 0.6379
+        },
+        "6": {
+          "source_layers": [
+            6,
+            8,
+            10,
+            12
+          ],
+          "in_sample_r2": 0.6027,
+          "held_out_r2": 0.5724
+        },
+        "7": {
+          "source_layers": [
+            6,
+            8,
+            10,
+            12
+          ],
+          "in_sample_r2": 0.5528,
+          "held_out_r2": 0.5174
+        },
+        "8": {
+          "source_layers": [
+            8,
+            10,
+            12,
+            14
+          ],
+          "in_sample_r2": 0.5585,
+          "held_out_r2": 0.5239
+        },
+        "9": {
+          "source_layers": [
+            8,
+            10,
+            12,
+            14
+          ],
+          "in_sample_r2": 0.5045,
+          "held_out_r2": 0.4674
+        },
+        "10": {
+          "source_layers": [
+            10,
+            12,
+            14,
+            16
+          ],
+          "in_sample_r2": 0.5404,
+          "held_out_r2": 0.504
+        },
+        "11": {
+          "source_layers": [
+            12,
+            14,
+            16,
+            18
+          ],
+          "in_sample_r2": 0.5884,
+          "held_out_r2": 0.5584
+        },
+        "12": {
+          "source_layers": [
+            12,
+            14,
+            16,
+            18
+          ],
+          "in_sample_r2": 0.5438,
+          "held_out_r2": 0.5056
+        },
+        "13": {
+          "source_layers": [
+            12,
+            14,
+            16,
+            18
+          ],
+          "in_sample_r2": 0.5435,
+          "held_out_r2": 0.5045
+        },
+        "14": {
+          "source_layers": [
+            12,
+            14,
+            16,
+            18
+          ],
+          "in_sample_r2": 0.5082,
+          "held_out_r2": 0.4687
+        },
+        "15": {
+          "source_layers": [
+            12,
+            14,
+            16,
+            18
+          ],
+          "in_sample_r2": 0.5144,
+          "held_out_r2": 0.483
+        },
+        "16": {
+          "source_layers": [
+            14,
+            16,
+            18,
+            20
+          ],
+          "in_sample_r2": 0.5917,
+          "held_out_r2": 0.5648
+        },
+        "17": {
+          "source_layers": [
+            14,
+            16,
+            18,
+            20
+          ],
+          "in_sample_r2": 0.5831,
+          "held_out_r2": 0.5543
+        },
+        "18": {
+          "source_layers": [
+            16,
+            18,
+            20,
+            22
+          ],
+          "in_sample_r2": 0.6729,
+          "held_out_r2": 0.6496
+        },
+        "19": {
+          "source_layers": [
+            16,
+            18,
+            20,
+            22
+          ],
+          "in_sample_r2": 0.6977,
+          "held_out_r2": 0.6767
+        },
+        "20": {
+          "source_layers": [
+            18,
+            20,
+            22,
+            24
+          ],
+          "in_sample_r2": 0.6942,
+          "held_out_r2": 0.6709
+        },
+        "21": {
+          "source_layers": [
+            20,
+            22,
+            24,
+            26
+          ],
+          "in_sample_r2": 0.6792,
+          "held_out_r2": 0.6533
+        },
+        "22": {
+          "source_layers": [
+            20,
+            22,
+            24,
+            26
+          ],
+          "in_sample_r2": 0.687,
+          "held_out_r2": 0.6594
+        },
+        "23": {
+          "source_layers": [
+            20,
+            22,
+            24,
+            26
+          ],
+          "in_sample_r2": 0.6567,
+          "held_out_r2": 0.6266
+        },
+        "24": {
+          "source_layers": [
+            20,
+            22,
+            24,
+            26
+          ],
+          "in_sample_r2": 0.6674,
+          "held_out_r2": 0.6374
+        },
+        "25": {
+          "source_layers": [
+            20,
+            22,
+            24,
+            26
+          ],
+          "in_sample_r2": 0.6534,
+          "held_out_r2": 0.6216
+        },
+        "26": {
+          "source_layers": [
+            20,
+            22,
+            24,
+            26
+          ],
+          "in_sample_r2": 0.6447,
+          "held_out_r2": 0.6118
+        },
+        "27": {
+          "source_layers": [
+            20,
+            22,
+            24,
+            26
+          ],
+          "in_sample_r2": 0.4909,
+          "held_out_r2": 0.4301
+        }
+      },
+      "fit_seconds": 201.7
+    }
+  },
+  "results": {
+    "arc_easy": {
+      "conditions": {
+        "target": {
+          "accuracy": 0.732,
+          "accuracy_normalized": 0.664,
+          "stderr": 0.028012568607680376,
+          "n_items": 250
+        },
+        "floor": {
+          "accuracy": 0.348,
+          "accuracy_normalized": 0.304,
+          "stderr": 0.030126134833396732,
+          "n_items": 250
+        },
+        "ridge": {
+          "accuracy": 0.692,
+          "accuracy_normalized": 0.568,
+          "stderr": 0.02919835611811049,
+          "n_items": 250
+        },
+        "whitened": {
+          "accuracy": 0.7,
+          "accuracy_normalized": 0.572,
+          "stderr": 0.028982753492378877,
+          "n_items": 250
+        }
+      },
+      "retention": {
+        "floor": 0.47540983606557374,
+        "ridge": 0.9453551912568305,
+        "whitened": 0.9562841530054644
+      },
+      "floor_normalized_retention": {
+        "ridge": 0.8958333333333333,
+        "whitened": 0.9166666666666666
+      }
+    },
+    "hellaswag": {
+      "conditions": {
+        "target": {
+          "accuracy": 0.464,
+          "accuracy_normalized": 0.616,
+          "stderr": 0.03154070386025017,
+          "n_items": 250
+        },
+        "floor": {
+          "accuracy": 0.384,
+          "accuracy_normalized": 0.396,
+          "stderr": 0.030759973992186666,
+          "n_items": 250
+        },
+        "ridge": {
+          "accuracy": 0.44,
+          "accuracy_normalized": 0.544,
+          "stderr": 0.031394266992557734,
+          "n_items": 250
+        },
+        "whitened": {
+          "accuracy": 0.444,
+          "accuracy_normalized": 0.548,
+          "stderr": 0.03142381262673261,
+          "n_items": 250
+        }
+      },
+      "retention": {
+        "floor": 0.8275862068965517,
+        "ridge": 0.9482758620689655,
+        "whitened": 0.9568965517241379
+      },
+      "floor_normalized_retention": {
+        "ridge": 0.6999999999999998,
+        "whitened": 0.7499999999999998
+      }
+    }
+  }
+}

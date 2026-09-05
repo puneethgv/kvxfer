@@ -69,6 +69,7 @@ def build_calibration(
     n_sequences: int = 256,
     mixture: dict[str, float] | None = None,
     seed: int = 0,
+    skip: int = 0,
 ) -> CalibrationSet:
     """Tokenize a fixed-length calibration set from one or more domains.
 
@@ -82,6 +83,10 @@ def build_calibration(
             reference setup; pass e.g. ``{"web": .5, "code": .3, "math": .2}``
             to test domain robustness.
         seed: shuffles the assembled set.
+        skip: discard this many sequences per domain before collecting. Use it to
+            carve evaluation documents that are disjoint from the calibration
+            corpus -- scoring a mapper on the text it was fitted on would
+            measure memorization rather than transfer.
 
     Returns:
         A :class:`CalibrationSet` of exactly ``n_sequences`` rows, each a full
@@ -110,6 +115,7 @@ def build_calibration(
 
         buffer: list[int] = []
         produced = 0
+        skipped = 0
         for record in stream:
             text = record.get(spec["text_key"]) or ""
             if not text.strip():
@@ -118,9 +124,13 @@ def build_calibration(
             buffer.append(tokenizer.eos_token_id)
 
             while len(buffer) >= seq_len and produced < want:
-                rows.append(torch.tensor(buffer[:seq_len], dtype=torch.long))
-                labels.append(domain)
+                chunk = buffer[:seq_len]
                 buffer = buffer[seq_len:]
+                if skipped < skip:
+                    skipped += 1
+                    continue
+                rows.append(torch.tensor(chunk, dtype=torch.long))
+                labels.append(domain)
                 produced += 1
             if produced >= want:
                 break

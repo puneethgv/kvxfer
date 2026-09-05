@@ -106,3 +106,79 @@ def score_continuation(
     return ScoredContinuation(
         total_logprob=picked.sum().item(), n_tokens=int(targets.numel())
     )
+
+
+@torch.no_grad()
+def score_tokens_batch(
+    model: torch.nn.Module,
+    full_ids: Tensor,
+    n_context: int,
+    cache: DynamicCache | None = None,
+    n_cached: int | None = None,
+) -> Tensor:
+    """Per-token log-probabilities for a batch of sequences.
+
+    The batched counterpart of :func:`score_continuation`, returning the full
+    per-token detail rather than a sum. Keeping the per-token values is what
+    makes continuous evaluation worth doing: a few hundred multiple-choice items
+    resolve differences of a couple of items, while the same forward passes over
+    the same text yield tens of thousands of paired token measurements.
+
+    Batching requires uniform lengths, which suits fixed-length document chunks
+    but not multiple-choice options of differing lengths -- hence the two
+    separate entry points.
+
+    Args:
+        model: the model producing logits.
+        full_ids: ``(batch, seq)`` context followed by tokens to score.
+        n_context: index at which scoring starts.
+        cache: prepopulated cache covering ``full_ids[:, :n_cached]``.
+        n_cached: how many leading tokens the cache covers; defaults to
+            ``n_context - 1``.
+
+    Returns:
+        ``(batch, seq - n_context)`` log-probabilities of the scored tokens.
+    """
+    if full_ids.dim() != 2:
+        raise ValueError(f"expected (batch, seq) input_ids, got {tuple(full_ids.shape)}")
+    total_len = full_ids.shape[1]
+    if n_context >= total_len:
+        raise ValueError(
+            f"no tokens to score: n_context={n_context}, sequence length {total_len}"
+        )
+
+    device = next(model.parameters()).device
+    full_ids = full_ids.to(device)
+
+    if cache is None:
+        n_cached = 0
+    elif n_cached is None:
+        n_cached = n_context - 1
+
+    if n_cached > n_context - 1:
+        raise ValueError(
+            f"cache covers {n_cached} tokens but scoring starts at {n_context}; "
+            f"the model must forward index {n_context - 1} itself"
+        )
+
+    forward_ids = full_ids[:, n_cached:]
+    positions = (
+        torch.arange(n_cached, total_len, device=device)
+        .unsqueeze(0)
+        .expand(full_ids.shape[0], -1)
+    )
+
+    out = model(
+        input_ids=forward_ids,
+        position_ids=positions,
+        past_key_values=cache,
+        use_cache=False,
+    )
+    logits = out.logits.float()
+
+    start = n_context - n_cached - 1
+    pred = logits[:, start : total_len - n_cached - 1, :]
+    targets = full_ids[:, n_context:total_len]
+
+    logprobs = F.log_softmax(pred, dim=-1)
+    return logprobs.gather(-1, targets.unsqueeze(-1)).squeeze(-1)
