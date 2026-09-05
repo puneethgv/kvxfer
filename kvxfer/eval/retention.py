@@ -29,12 +29,21 @@ from kvxfer.mappers import Mapper
 
 @dataclass
 class ConditionResult:
-    """Accuracy of one condition on one task."""
+    """Accuracy of one condition on one task.
+
+    Per-item outcomes are kept, not just totals. Conditions are scored on
+    identical items, so the meaningful comparison between two mappers is
+    paired, and a paired test needs to know *which* items each got right --
+    information that aggregate counts throw away. With a few hundred items the
+    difference matters: an aggregate standard error of a few points can hide an
+    effect that is unambiguous once the shared items are accounted for.
+    """
 
     name: str
     n_items: int
     n_correct: int
     n_correct_normalized: int
+    outcomes: list[bool] = field(default_factory=list)
 
     @property
     def accuracy(self) -> float:
@@ -52,11 +61,75 @@ class ConditionResult:
 
 
 @dataclass
+class PairedComparison:
+    """McNemar comparison of two conditions scored on the same items."""
+
+    a: str
+    b: str
+    a_only: int
+    b_only: int
+    difference: float
+    p_value: float
+
+    @property
+    def n_discordant(self) -> int:
+        return self.a_only + self.b_only
+
+    def __str__(self) -> str:
+        return (
+            f"{self.b} - {self.a} = {self.difference:+.4f}  "
+            f"({self.b_only} vs {self.a_only} of {self.n_discordant} disagreements, "
+            f"p={self.p_value:.4f})"
+        )
+
+
+@dataclass
 class RetentionResult:
     """All conditions for one task, plus the derived retention figures."""
 
     task: str
     conditions: dict[str, ConditionResult] = field(default_factory=dict)
+
+    def paired_test(self, a: str, b: str) -> PairedComparison:
+        """Exact McNemar test between two conditions on the same items.
+
+        Only items the two conditions disagree on carry information; items both
+        get right, or both get wrong, say nothing about which is better. Under
+        the null those disagreements split evenly, so the exact two-sided
+        binomial test on that split is the whole test -- and it is exact rather
+        than asymptotic, which matters because the discordant count is often
+        small even when the item count is not.
+        """
+        left = self.conditions[a].outcomes
+        right = self.conditions[b].outcomes
+        if not left or not right:
+            raise ValueError(
+                "per-item outcomes are unavailable; these results predate "
+                "outcome recording and cannot support a paired test"
+            )
+        if len(left) != len(right):
+            raise ValueError(f"condition lengths differ: {len(left)} vs {len(right)}")
+
+        a_only = sum(1 for x, y in zip(left, right) if x and not y)
+        b_only = sum(1 for x, y in zip(left, right) if y and not x)
+        n = a_only + b_only
+
+        if n == 0:
+            p_value = 1.0
+        else:
+            # Two-sided exact binomial: P(|X - n/2| >= |observed - n/2|).
+            extreme = max(a_only, b_only)
+            tail = sum(math.comb(n, i) for i in range(extreme, n + 1)) / 2**n
+            p_value = min(1.0, 2.0 * tail)
+
+        return PairedComparison(
+            a=a,
+            b=b,
+            a_only=a_only,
+            b_only=b_only,
+            difference=(b_only - a_only) / max(len(left), 1),
+            p_value=p_value,
+        )
 
     def retention(self, condition: str, reference: str = "target") -> float:
         """Transferred accuracy as a fraction of the target's own."""
@@ -150,6 +223,7 @@ def evaluate_task(
     if source_model is not None and score_source_baseline:
         names.append("source")
     counters = {name: [0, 0] for name in names}
+    outcomes: dict[str, list[bool]] = {name: [] for name in names}
 
     for index, example in enumerate(examples):
         correct, correct_norm = _score_choices(
@@ -157,6 +231,7 @@ def evaluate_task(
         )
         counters["target"][0] += int(correct == example.answer)
         counters["target"][1] += int(correct_norm == example.answer)
+        outcomes["target"].append(correct == example.answer)
 
         if "source" in counters:
             # The practical decision baseline: if a transferred cache does not
@@ -166,6 +241,7 @@ def evaluate_task(
             )
             counters["source"][0] += int(hit == example.answer)
             counters["source"][1] += int(hit_norm == example.answer)
+            outcomes["source"].append(hit == example.answer)
 
         if mappers:
             context_ids = tokenizer(example.context, return_tensors="pt").input_ids
@@ -175,6 +251,7 @@ def evaluate_task(
                 for name in mappers:
                     counters[name][0] += int(correct == example.answer)
                     counters[name][1] += int(correct_norm == example.answer)
+                    outcomes[name].append(correct == example.answer)
                 continue
 
             source_content = cache_to_content(
@@ -189,6 +266,7 @@ def evaluate_task(
                 )
                 counters[name][0] += int(hit == example.answer)
                 counters[name][1] += int(hit_norm == example.answer)
+                outcomes[name].append(hit == example.answer)
 
         if progress_every and (index + 1) % progress_every == 0:
             print(f"    {index + 1}/{len(examples)} items", flush=True)
@@ -196,7 +274,9 @@ def evaluate_task(
     return RetentionResult(
         task=task_name,
         conditions={
-            name: ConditionResult(name, len(examples), hits, hits_norm)
+            name: ConditionResult(
+                name, len(examples), hits, hits_norm, outcomes[name]
+            )
             for name, (hits, hits_norm) in counters.items()
         },
     )

@@ -240,6 +240,12 @@ def main() -> None:
                 )
             print(line)
 
+        # The comparison that matters is paired: conditions are scored on
+        # identical items, so per-condition standard errors overstate the
+        # uncertainty of the difference between them.
+        if "ridge" in outcome.conditions and "whitened" in outcome.conditions:
+            print(f"    paired: {outcome.paired_test('ridge', 'whitened')}")
+
     out_dir = Path(args.out) / art.parent.name / art.name
     out_dir.mkdir(parents=True, exist_ok=True)
     payload = {
@@ -261,6 +267,7 @@ def main() -> None:
                         "accuracy_normalized": cond.accuracy_normalized,
                         "stderr": cond.stderr(),
                         "n_items": cond.n_items,
+                        "outcomes": [int(v) for v in cond.outcomes],
                     }
                     for name, cond in outcome.conditions.items()
                 },
@@ -269,6 +276,16 @@ def main() -> None:
                     for name in outcome.conditions
                     if name != "target"
                 },
+                "paired_ridge_vs_whitened": (
+                    {
+                        "difference": outcome.paired_test("ridge", "whitened").difference,
+                        "p_value": outcome.paired_test("ridge", "whitened").p_value,
+                        "ridge_only": outcome.paired_test("ridge", "whitened").a_only,
+                        "whitened_only": outcome.paired_test("ridge", "whitened").b_only,
+                    }
+                    if {"ridge", "whitened"} <= set(outcome.conditions)
+                    else None
+                ),
                 "floor_normalized_retention": {
                     name: outcome.floor_normalized_retention(name)
                     for name in outcome.conditions
