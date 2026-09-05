@@ -246,3 +246,101 @@ def test_value_metric_from_a_real_model():
     normalized = metrics.normalized()
     mean_diag = normalized.matrices.diagonal(dim1=-2, dim2=-1).mean(-1)
     assert t.allclose(mean_diag, t.ones_like(mean_diag), atol=1e-6)
+
+
+def test_metric_r2_matches_direct_computation():
+    """Metric-weighted R² from moments must equal the value from samples.
+
+    The expansion involves the prediction's own second moment and its cross
+    moment with the target, including bias terms in both -- easy to get subtly
+    wrong, and wrong in a way that would quietly distort the central claim this
+    quantity exists to test.
+    """
+    from kvxfer.solvers.whitened import held_out_metric_r2
+
+    torch.manual_seed(11)
+    dim_in = N_SRC_LAYERS * KV_DIM
+    w_true = torch.randn(dim_in, KV_DIM, dtype=torch.float64) / dim_in**0.5
+    b_true = torch.randn(KV_DIM, dtype=torch.float64)
+
+    fit_stats = _stats(noise=0.4, seed=11)
+    fit = solve_ridge(fit_stats, tuple(range(N_SRC_LAYERS)), 0, lam=1e-2)
+
+    # Independent validation split, kept as samples for direct scoring.
+    x_val = torch.randn(2500, dim_in, dtype=torch.float64)
+    y_val = (
+        x_val @ w_true + b_true + 0.4 * torch.randn(2500, KV_DIM, dtype=torch.float64)
+    )
+    acc = GramAccumulator(_geom(N_SRC_LAYERS), _geom(N_TGT_LAYERS), kind="keys")
+    acc.update(x_val, torch.stack([y_val, torch.randn_like(y_val)], dim=1))
+    val_stats = acc.finalize()
+
+    # A deliberately anisotropic metric, so the weighting actually bites.
+    torch.manual_seed(12)
+    raw = torch.randn(N_TGT_LAYERS, N_KV_HEADS, HEAD_DIM, HEAD_DIM, dtype=torch.float64)
+    metrics = HeadMetrics(raw @ raw.transpose(-1, -2), "keys")
+
+    from_moments = held_out_metric_r2(val_stats, fit, metrics, N_KV_HEADS, HEAD_DIM)
+
+    pred = x_val @ fit.weight.double() + fit.bias.double()
+    residual = pred - y_val
+    centered = y_val - y_val.mean(0)
+
+    scores = []
+    for head in range(N_KV_HEADS):
+        lo, hi = head * HEAD_DIM, (head + 1) * HEAD_DIM
+        m = metrics.matrices[0, head]
+        rss = torch.einsum("ni,ij,nj->", residual[:, lo:hi], m, residual[:, lo:hi])
+        tss = torch.einsum("ni,ij,nj->", centered[:, lo:hi], m, centered[:, lo:hi])
+        scores.append(1.0 - rss / tss)
+    direct = float(torch.stack(scores).mean())
+
+    # Agreement is bounded by the accumulator's float32 storage, not by the
+    # float64 solve: the moments themselves carry ~1e-7 relative error, so a
+    # tighter tolerance here would be testing the storage precision rather
+    # than the correctness of the expansion.
+    assert from_moments == pytest.approx(direct, rel=1e-4, abs=1e-6), (
+        f"moment-based metric R2 {from_moments:.8f} != direct {direct:.8f}"
+    )
+
+
+def test_whitened_wins_on_its_own_objective():
+    """The whitened fit must beat plain ridge under the metric it optimizes.
+
+    Ridge is optimal for isotropic error by construction, so it must win on
+    plain R². The whitened solve must win on the metric-weighted score. If
+    either ordering fails, the objective is not doing what it claims.
+    """
+    from kvxfer.solvers.whitened import held_out_metric_r2
+
+    # Fit and validation must come from the same generating process; _stats
+    # redraws the true weights per seed, so both splits use one seed and differ
+    # only through the noise realization drawn within it.
+    fit_stats = _stats(noise=0.6, seed=13, n_tokens=8000)
+    val_stats = _stats(noise=0.6, seed=13, n_tokens=8000)
+    layers = tuple(range(N_SRC_LAYERS))
+
+    raw = torch.randn(N_TGT_LAYERS, N_KV_HEADS, HEAD_DIM, HEAD_DIM, dtype=torch.float64)
+    metrics = HeadMetrics(raw @ raw.transpose(-1, -2), "keys").normalized()
+
+    plain = solve_ridge(fit_stats, layers, 0, lam=1.0)
+    whitened = solve_whitened(
+        fit_stats, layers, 0, metrics, N_KV_HEADS, HEAD_DIM, lam=1.0
+    )
+
+    from kvxfer.solvers.ridge import held_out_r2
+
+    plain_iso = float(held_out_r2(val_stats, plain).mean())
+    whitened_iso = float(held_out_r2(val_stats, whitened).mean())
+    plain_metric = held_out_metric_r2(val_stats, plain, metrics, N_KV_HEADS, HEAD_DIM)
+    whitened_metric = held_out_metric_r2(
+        val_stats, whitened, metrics, N_KV_HEADS, HEAD_DIM
+    )
+
+    assert plain_iso > whitened_iso, (
+        f"ridge should win on isotropic R2: {plain_iso:.5f} vs {whitened_iso:.5f}"
+    )
+    assert whitened_metric > plain_metric, (
+        f"whitened should win on the metric it optimizes: "
+        f"{whitened_metric:.5f} vs {plain_metric:.5f}"
+    )

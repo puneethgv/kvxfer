@@ -43,6 +43,13 @@ class GramStats:
         y_sum: ``(n_target_layers, kv_dim)`` target totals, for the intercept.
         yty_diag: ``(n_target_layers, kv_dim)`` target second moments, the
             denominator of per-coordinate R².
+        yty_head: ``(n_target_layers, n_kv_heads, head_dim, head_dim)`` full
+            per-head target second moments. Needed to score a fit under a
+            non-diagonal metric, which the diagonal alone cannot support. Only
+            the per-head blocks are kept, not the whole ``kv_dim`` square,
+            because the metrics are block diagonal by head -- that is 15 MB
+            rather than 117 MB for a 28-layer target. Optional so that
+            statistics written before this existed still load.
         n_tokens: number of tokens accumulated.
         kind: ``"keys"`` or ``"values"``.
         source_layers: which source layers ``D`` indexes, in order.
@@ -57,6 +64,7 @@ class GramStats:
     kind: str
     source_layers: tuple[int, ...]
     kv_dim: int
+    yty_head: Tensor | None = None
 
     @property
     def n_source_layers(self) -> int:
@@ -104,6 +112,7 @@ class GramStats:
                 "x_sum": self.x_sum.cpu(),
                 "y_sum": self.y_sum.cpu(),
                 "yty_diag": self.yty_diag.cpu(),
+                "yty_head": None if self.yty_head is None else self.yty_head.cpu(),
                 "n_tokens": self.n_tokens,
                 "kind": self.kind,
                 "source_layers": self.source_layers,
@@ -163,14 +172,31 @@ class GramAccumulator:
         self.yty_diag = torch.zeros(
             target.n_layers, target.kv_dim, dtype=torch.float32, device=self.device
         )
+        self.yty_head = torch.zeros(
+            target.n_layers,
+            target.n_kv_heads,
+            target.head_dim,
+            target.head_dim,
+            dtype=torch.float32,
+            device=self.device,
+        )
         self.n_tokens = 0
+        self._n_kv_heads = target.n_kv_heads
+        self._head_dim = target.head_dim
 
     @property
     def nbytes(self) -> int:
         """Accumulator footprint, for sizing a run before starting it."""
         return sum(
             t.numel() * t.element_size()
-            for t in (self.xtx, self.xty, self.x_sum, self.y_sum, self.yty_diag)
+            for t in (
+                self.xtx,
+                self.xty,
+                self.x_sum,
+                self.y_sum,
+                self.yty_diag,
+                self.yty_head,
+            )
         )
 
     @torch.no_grad()
@@ -198,6 +224,11 @@ class GramAccumulator:
         self.x_sum += x.sum(dim=0)
         self.y_sum += y.sum(dim=0)
         self.yty_diag += (y * y).sum(dim=0)
+
+        # Per-head blocks, needed to score fits under a non-diagonal metric.
+        heads = y.reshape(n, n_tgt, self._n_kv_heads, self._head_dim)
+        self.yty_head += torch.einsum("nlhi,nlhj->lhij", heads, heads)
+
         self.n_tokens += n
 
     def finalize(self) -> GramStats:
@@ -214,4 +245,5 @@ class GramAccumulator:
             kind=self.kind,
             source_layers=self.source_layers,
             kv_dim=self.kv_dim,
+            yty_head=self.yty_head,
         )

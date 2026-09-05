@@ -177,3 +177,87 @@ def solve_whitened(
 def clear_design_cache() -> None:
     """Drop cached eigendecompositions. Call between pairs to free memory."""
     _DESIGN_CACHE.clear()
+
+
+def held_out_metric_r2(
+    stats: GramStats,
+    fit: LinearMap,
+    metrics: HeadMetrics,
+    n_kv_heads: int,
+    head_dim: int,
+) -> float:
+    """Held-out fit quality measured under the attention metric.
+
+    Plain R² asks how much of the target's variance a map reproduces. This asks
+    how much of the variance *attention can see* it reproduces, which is the
+    quantity the reference work's diagnostics implicate: they find calibration
+    R² anti-correlates with downstream retention, while an attention-sensitive
+    measure predicts it.
+
+    Having both makes that testable directly. If retention tracks this figure
+    while moving against plain R², the objective mismatch is demonstrated
+    rather than argued.
+
+    Computed from moments, like :func:`kvxfer.solvers.ridge.held_out_r2`, but
+    it needs the full per-head target second moments rather than just their
+    diagonal, since the metric is not diagonal.
+
+    Args:
+        stats: statistics from a split not used to fit ``fit``. Must carry
+            ``yty_head``.
+        fit: the map to score.
+        metrics: the metric to score under.
+        n_kv_heads: target KV head count.
+        head_dim: target head dimension.
+
+    Returns:
+        Metric-weighted R², averaged over heads.
+
+    Raises:
+        ValueError: if ``stats`` predates per-head moment accumulation.
+    """
+    if stats.yty_head is None:
+        raise ValueError(
+            "these statistics carry no per-head target moments; recalibrate to "
+            "score under a non-diagonal metric"
+        )
+
+    cpu64 = dict(device="cpu", dtype=torch.float64)
+    xtx, xty, x_sum = stats.select(tuple(fit.source_layers))
+    xtx = xtx.to(**cpu64)
+    xty = xty[:, fit.target_layer].to(**cpu64)
+    x_sum = x_sum.to(**cpu64)
+    y_sum = stats.y_sum[fit.target_layer].to(**cpu64)
+    yty = stats.yty_head[fit.target_layer].to(**cpu64)
+    n = float(stats.n_tokens)
+
+    w = fit.weight.to(**cpu64)
+    b = fit.bias.to(**cpu64)
+
+    # Second moment of the prediction, and its cross moment with the target.
+    pred_sq = w.T @ xtx @ w
+    cross_x = torch.outer(w.T @ x_sum, b)
+    pred_sq = pred_sq + cross_x + cross_x.T + n * torch.outer(b, b)
+    pred_target = w.T @ xty + torch.outer(b, y_sum)
+
+    metric = metrics.matrices[fit.target_layer].to(**cpu64)
+    mean = y_sum / n
+
+    scores = []
+    for head in range(n_kv_heads):
+        lo, hi = head * head_dim, (head + 1) * head_dim
+        block = yty[head]
+
+        residual = (
+            pred_sq[lo:hi, lo:hi]
+            - pred_target[lo:hi, lo:hi]
+            - pred_target[lo:hi, lo:hi].T
+            + block
+        )
+        centered = block - n * torch.outer(mean[lo:hi], mean[lo:hi])
+
+        rss = torch.einsum("ij,ji->", metric[head], residual)
+        tss = torch.einsum("ij,ji->", metric[head], centered)
+        scores.append(1.0 - rss / tss.clamp_min(1e-12))
+
+    return float(torch.stack(scores).mean())
