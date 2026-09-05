@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+.pytest_cache/
+
+# Multi-GB experiment artifacts — never commit
+artifacts/
+*.safetensors
+*.gram
+*.npy
+*.npz
+*.pt
+
+# HF cache if placed locally
+hf_cache/
+
+# OS
+.DS_Store
+
+# stray/credential-shaped files
+token
+*.token
+.env
