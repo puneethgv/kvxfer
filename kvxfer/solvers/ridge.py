@@ -260,3 +260,40 @@ def select_source_layers(
         chosen.append(best_layer)
 
     return tuple(sorted(chosen))
+
+
+def select_top_k(
+    fit_stats: GramStats,
+    val_stats: GramStats,
+    target_layer: int,
+    k: int,
+    lam: float = 1e-3,
+) -> tuple[int, ...]:
+    """Pick the k best single source layers, ranked out of sample.
+
+    This is the reference work's selection rule -- rank each candidate layer by
+    how well it alone predicts the target, then concatenate the top k -- with
+    the one change that ranking happens on held-out rather than in-sample
+    statistics. It is much cheaper than forward selection (linear rather than
+    quadratic in k) and, because layers within a family are highly correlated
+    with their neighbours, usually lands on the same set.
+
+    Args:
+        fit_stats: statistics to fit candidates on.
+        val_stats: independent statistics to rank them on.
+        target_layer: the target layer being predicted.
+        k: how many source layers to keep.
+        lam: ridge penalty used while ranking.
+
+    Returns:
+        The selected source layers, in ascending order.
+    """
+    scored = [
+        (
+            float(held_out_r2(val_stats, solve_ridge(fit_stats, (layer,), target_layer, lam)).mean()),
+            layer,
+        )
+        for layer in fit_stats.source_layers
+    ]
+    scored.sort(reverse=True)
+    return tuple(sorted(layer for _, layer in scored[:k]))

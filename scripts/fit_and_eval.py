@@ -34,7 +34,12 @@ from kvxfer.mappers import FittedMapper, ZeroMapper
 from kvxfer.metrics import HeadMetrics, identity_metrics, key_metric, value_metric
 from kvxfer.models import load_model, load_tokenizer
 from kvxfer.queries import collect_query_moments
-from kvxfer.solvers.ridge import held_out_r2, select_source_layers, solve_ridge
+from kvxfer.solvers.ridge import (
+    held_out_r2,
+    select_source_layers,
+    select_top_k,
+    solve_ridge,
+)
 from kvxfer.solvers.whitened import clear_design_cache, solve_whitened
 from kvxfer.stats import GramStats
 
@@ -47,6 +52,7 @@ def choose_layers(
     lam: float,
     n_candidates: int,
     label: str,
+    strategy: str = "topk",
 ) -> dict[int, tuple[int, ...]]:
     """Select source layers per target layer, once, out of sample.
 
@@ -58,9 +64,12 @@ def choose_layers(
     """
     chosen: dict[int, tuple[int, ...]] = {}
     for layer in range(n_target_layers):
-        chosen[layer] = select_source_layers(
-            fit_stats, val_stats, layer, k=k, lam=lam, n_candidates=n_candidates
-        )
+        if strategy == "topk":
+            chosen[layer] = select_top_k(fit_stats, val_stats, layer, k=k, lam=lam)
+        else:
+            chosen[layer] = select_source_layers(
+                fit_stats, val_stats, layer, k=k, lam=lam, n_candidates=n_candidates
+            )
         print(f"  [{label}] L{layer:02d} <- {chosen[layer]}", flush=True)
     return chosen
 
@@ -119,6 +128,13 @@ def main() -> None:
     parser.add_argument("--k", type=int, default=4, help="source layers per target layer")
     parser.add_argument("--lam", type=float, default=1e-3)
     parser.add_argument("--n-candidates", type=int, default=6)
+    parser.add_argument(
+        "--selection",
+        default="topk",
+        choices=["topk", "greedy"],
+        help="topk reproduces the reference rule (ranked out of sample); "
+        "greedy does forward selection, which is slower and rarely differs",
+    )
     parser.add_argument("--metric-offset", type=int, default=2048)
     parser.add_argument("--query-sequences", type=int, default=32)
     parser.add_argument("--dtype", default="float32", choices=["bfloat16", "float32"])
@@ -174,11 +190,11 @@ def main() -> None:
     selection = {
         "keys": choose_layers(
             stats["fit_keys"], stats["val_keys"], target_geom.n_layers,
-            args.k, args.lam, args.n_candidates, "select/K",
+            args.k, args.lam, args.n_candidates, "select/K", args.selection,
         ),
         "values": choose_layers(
             stats["fit_values"], stats["val_values"], target_geom.n_layers,
-            args.k, args.lam, args.n_candidates, "select/V",
+            args.k, args.lam, args.n_candidates, "select/V", args.selection,
         ),
     }
 
