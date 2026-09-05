@@ -120,3 +120,62 @@ def content_to_cache(
             (keys[i].to(device), values[i].to(device)) for i in range(keys.shape[0])
         ]
     )
+
+
+class CacheTemplate:
+    """Holds one prefill's KV and hands out a fresh cache for every use.
+
+    A model appends to whatever cache it is given -- including when
+    ``use_cache=False``, since the append happens inside attention rather than
+    at the output. So a cache scored against once is longer afterwards, and
+    scoring a second continuation against the same object silently returns a
+    wrong answer rather than raising.
+
+    That matters here because reuse is the entire point: a multiple-choice item
+    prefills its context once and scores every choice against it. This class
+    makes that safe by materializing the rotated tensors a single time and
+    cloning them per call, so the expensive part -- prefill and mapping -- is
+    still done once.
+    """
+
+    def __init__(self, keys: Tensor, values: Tensor) -> None:
+        """
+        Args:
+            keys: ``(n_layers, batch, n_kv_heads, seq, head_dim)``, post-RoPE.
+            values: same shape, as cached.
+        """
+        if keys.shape != values.shape:
+            raise ValueError(f"key/value shape mismatch: {keys.shape} vs {values.shape}")
+        self.keys = keys
+        self.values = values
+
+    @property
+    def seq_len(self) -> int:
+        return self.keys.shape[3]
+
+    @classmethod
+    def from_content(
+        cls,
+        content: ContentKV,
+        model: torch.nn.Module,
+        dtype: torch.dtype,
+        position_ids: Tensor | None = None,
+    ) -> "CacheTemplate":
+        """Rotate content-space KV into cache form once, ready for reuse."""
+        if position_ids is None:
+            position_ids = content.position_ids
+        cos, sin = rope_tables(model, position_ids)
+        device = next(model.parameters()).device
+        return cls(
+            keys=restore_keys(content.keys, cos, sin, dtype).to(device),
+            values=content.values.to(dtype).to(device),
+        )
+
+    def build(self) -> DynamicCache:
+        """Return a fresh cache the caller may safely let the model mutate."""
+        return DynamicCache(
+            ddp_cache_data=[
+                (self.keys[i].clone(), self.values[i].clone())
+                for i in range(self.keys.shape[0])
+            ]
+        )

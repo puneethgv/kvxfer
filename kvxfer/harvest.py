@@ -132,3 +132,79 @@ def harvest(
         accumulator_bytes=accumulator.nbytes,
     )
     return accumulator.finalize(), report
+
+
+@torch.no_grad()
+def harvest_both(
+    source_model: torch.nn.Module,
+    target_model: torch.nn.Module,
+    source_geom: KVGeometry,
+    target_geom: KVGeometry,
+    calibration: CalibrationSet,
+    source_layers: tuple[int, ...] | None = None,
+    token_stride: int = 2,
+    batch_size: int = 1,
+    accumulate_on: str | torch.device | None = None,
+    progress: bool = True,
+) -> tuple[dict[str, GramStats], HarvestReport]:
+    """Accumulate key and value statistics in a single pass.
+
+    Keys and values need separate statistics but identical forward passes, so
+    running them as two passes doubles the dominant cost for nothing. This
+    halves calibration time at the price of holding two accumulators at once --
+    the right trade whenever they both fit, and the difference between one and
+    two GPU-hours on rented hardware.
+
+    Args:
+        See :func:`harvest`. ``source_layers`` remains the memory dial, and now
+        governs two accumulators rather than one.
+
+    Returns:
+        ``({"keys": ..., "values": ...}, report)``.
+    """
+    check_pair(source_geom, target_geom)
+    layers = source_layers or tuple(range(source_geom.n_layers))
+    device = accumulate_on or next(target_model.parameters()).device
+
+    accumulators = {
+        kind: GramAccumulator(
+            source_geom, target_geom, kind=kind, source_layers=layers, device=device
+        )
+        for kind in ("keys", "values")
+    }
+    if progress:
+        total = sum(a.nbytes for a in accumulators.values())
+        print(f"  accumulators: {total / 1024**3:.2f} GB on {device}", flush=True)
+
+    started = time.time()
+    n_sequences = 0
+    for batch in calibration.batches(batch_size):
+        source_content = cache_to_content(prefill(source_model, batch), source_model)
+        target_content = cache_to_content(prefill(target_model, batch), target_model)
+
+        for kind, accumulator in accumulators.items():
+            x = _design_rows(source_content, layers, kind)
+            y = _target_rows(target_content, kind)
+            if token_stride > 1:
+                x = x[::token_stride]
+                y = y[::token_stride]
+            accumulator.update(x, y)
+            del x, y
+
+        n_sequences += batch.shape[0]
+        del source_content, target_content
+
+        if progress and n_sequences % (batch_size * 16) == 0:
+            print(
+                f"  {n_sequences}/{len(calibration)} sequences, "
+                f"{accumulators['keys'].n_tokens:,} tokens",
+                flush=True,
+            )
+
+    report = HarvestReport(
+        n_tokens=accumulators["keys"].n_tokens,
+        n_sequences=n_sequences,
+        seconds=time.time() - started,
+        accumulator_bytes=sum(a.nbytes for a in accumulators.values()),
+    )
+    return {k: a.finalize() for k, a in accumulators.items()}, report

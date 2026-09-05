@@ -23,7 +23,7 @@ import torch
 
 from kvxfer.data import build_calibration
 from kvxfer.geometry import load_geometry
-from kvxfer.harvest import harvest
+from kvxfer.harvest import harvest_both
 from kvxfer.models import load_model, load_tokenizer
 
 
@@ -122,28 +122,30 @@ def main() -> None:
 
     started = time.time()
     for split, corpus_split in splits.items():
-        for kind in ("keys", "values"):
-            print(f"\n[{split}/{kind}] harvesting {len(corpus_split)} sequences")
-            stats, report = harvest(
-                source_model,
-                target_model,
-                source_geom,
-                target_geom,
-                corpus_split,
-                kind=kind,
-                source_layers=layers,
-                token_stride=args.token_stride,
-                batch_size=args.batch_size,
-            )
+        # Keys and values share the same forward passes, which dominate the
+        # cost, so both are accumulated in one sweep over the split.
+        print(f"\n[{split}] harvesting {len(corpus_split)} sequences")
+        both, report = harvest_both(
+            source_model,
+            target_model,
+            source_geom,
+            target_geom,
+            corpus_split,
+            source_layers=layers,
+            token_stride=args.token_stride,
+            batch_size=args.batch_size,
+        )
+        print(f"  {report}")
+        for kind, stats in both.items():
             path = out_dir / f"{split}_{kind}.pt"
             stats.save(path)
-            print(f"  {report}\n  saved {path}")
+            print(f"  saved {path}")
             manifest["splits"][f"{split}_{kind}"] = {
                 "n_tokens": report.n_tokens,
                 "seconds": round(report.seconds, 1),
                 "path": str(path),
             }
-            del stats
+        del both
 
     manifest["total_seconds"] = round(time.time() - started, 1)
     (out_dir / "manifest.json").write_text(json.dumps(manifest, indent=2))

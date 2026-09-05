@@ -222,3 +222,53 @@ def test_layered_roundtrip_is_batch_correct(model, tokenizer, batch_size):
     assert rebuilt.shape == original_keys.shape
     err = (rebuilt - original_keys).abs().max().item()
     assert err < 1e-4, f"batch={batch_size} round trip drifted by {err:.3e}"
+
+
+def test_scoring_mutates_a_raw_cache(model, ids):
+    """Document the hazard that CacheTemplate exists to avoid.
+
+    Attention appends to whatever cache it is handed, even under
+    use_cache=False, so a cache is longer after being scored against and reusing
+    it returns a different -- wrong -- answer instead of failing loudly.
+    """
+    full_ids, n_context = ids
+    n_cached = n_context - 1
+    content = cache_to_content(prefill(model, full_ids[:, :n_cached]), model)
+    cache = content_to_cache(content, model, dtype=torch.float32)
+
+    assert cache.get_seq_length() == n_cached
+    first = score_continuation(model, full_ids, n_context, cache=cache, n_cached=n_cached)
+    assert cache.get_seq_length() > n_cached, "expected the cache to have grown"
+
+    second = score_continuation(model, full_ids, n_context, cache=cache, n_cached=n_cached)
+    assert abs(first.total_logprob - second.total_logprob) > 1e-3, (
+        "reusing a raw cache should give a different (wrong) answer; if this "
+        "now matches, transformers changed its behaviour and CacheTemplate's "
+        "cloning may no longer be necessary"
+    )
+
+
+def test_cache_template_is_reusable(model, ids):
+    """Repeated scoring through a template must be exactly repeatable.
+
+    This is what makes the multiple-choice protocol sound: one prefill, one
+    mapping, many continuations scored against them.
+    """
+    from kvxfer.cache import CacheTemplate
+
+    full_ids, n_context = ids
+    n_cached = n_context - 1
+    content = cache_to_content(prefill(model, full_ids[:, :n_cached]), model)
+    template = CacheTemplate.from_content(content, model, dtype=torch.float32)
+
+    scores = [
+        score_continuation(
+            model, full_ids, n_context, cache=template.build(), n_cached=n_cached
+        ).total_logprob
+        for _ in range(3)
+    ]
+
+    assert max(scores) - min(scores) < 1e-6, f"template not reusable: {scores}"
+
+    standalone = score_continuation(model, full_ids, n_context, cache=None)
+    assert abs(scores[0] - standalone.total_logprob) < 1e-2
