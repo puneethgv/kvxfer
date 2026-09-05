@@ -85,7 +85,7 @@ def cache_to_content(
         position_ids = torch.arange(seq, device=keys.device).unsqueeze(0).expand(batch, -1)
 
     cos, sin = rope_tables(model, position_ids)
-    content = strip_keys(keys, cos.unsqueeze(0), sin.unsqueeze(0))
+    content = strip_keys(keys, cos, sin)
     return ContentKV(
         keys=content, values=values.to(torch.float32), position_ids=position_ids
     )
@@ -111,7 +111,7 @@ def content_to_cache(
         position_ids = content.position_ids
 
     cos, sin = rope_tables(model, position_ids)
-    keys = restore_keys(content.keys, cos.unsqueeze(0), sin.unsqueeze(0), dtype)
+    keys = restore_keys(content.keys, cos, sin, dtype)
     values = content.values.to(dtype)
 
     device = next(model.parameters()).device

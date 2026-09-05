@@ -195,3 +195,30 @@ def prefill_at_positions(model, input_ids, position_ids):
         use_cache=True,
     )
     return out.past_key_values
+
+
+@pytest.mark.parametrize("batch_size", [1, 3])
+def test_layered_roundtrip_is_batch_correct(model, tokenizer, batch_size):
+    """RoPE stripping must align batch and sequence axes at any batch size.
+
+    Layer-stacked KV is (n_layers, batch, n_kv_heads, seq, head_dim). Using the
+    4-D (batch, heads, seq, dim) broadcasting convention on it happens to work
+    at batch size 1 and silently misaligns batch against heads above it, so
+    this is checked at more than one batch size on purpose.
+    """
+    prompts = [
+        "The capital of France is Paris, a city on the river",
+        "In 1969 the Apollo 11 mission landed the first humans on the",
+        "Photosynthesis converts light energy into chemical energy stored in",
+    ][:batch_size]
+    batch = tokenizer(prompts, return_tensors="pt", padding=True).input_ids
+
+    cache = prefill(model, batch)
+    original_keys, _ = stack_cache(cache)
+
+    content = cache_to_content(cache, model)
+    rebuilt, _ = stack_cache(content_to_cache(content, model, dtype=torch.float32))
+
+    assert rebuilt.shape == original_keys.shape
+    err = (rebuilt - original_keys).abs().max().item()
+    assert err < 1e-4, f"batch={batch_size} round trip drifted by {err:.3e}"

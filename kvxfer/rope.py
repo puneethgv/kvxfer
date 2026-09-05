@@ -90,11 +90,35 @@ def rope_tables(
     return cos.to(dtype), sin.to(dtype)
 
 
+def _align_layered(cos: Tensor, sin: Tensor) -> tuple[Tensor, Tensor]:
+    """Reshape ``(batch, seq, head_dim)`` tables for layer-stacked KV tensors.
+
+    Layer-stacked tensors are ``(n_layers, batch, n_kv_heads, seq, head_dim)``,
+    so the tables must broadcast over layers and heads while staying aligned on
+    batch and sequence. Relying on the 4-D convention here silently works at
+    batch size 1 and misaligns batch against heads above it.
+    """
+    return cos[None, :, None, :, :], sin[None, :, None, :, :]
+
+
 def strip_keys(keys: Tensor, cos: Tensor, sin: Tensor) -> Tensor:
-    """Convert cached (post-RoPE) keys to content space, in float32."""
-    return unapply_rope(keys.to(torch.float32), cos, sin)
+    """Convert cached (post-RoPE) keys to content space, in float32.
+
+    Args:
+        keys: ``(n_layers, batch, n_kv_heads, seq, head_dim)``.
+        cos: ``(batch, seq, head_dim)``.
+        sin: ``(batch, seq, head_dim)``.
+    """
+    cos, sin = _align_layered(cos, sin)
+    x = keys.to(torch.float32)
+    return x * cos - rotate_half(x) * sin
 
 
 def restore_keys(content: Tensor, cos: Tensor, sin: Tensor, dtype: torch.dtype) -> Tensor:
-    """Convert content-space keys back to cache (post-RoPE) form."""
-    return apply_rope(content.to(torch.float32), cos, sin).to(dtype)
+    """Convert content-space keys back to cache (post-RoPE) form.
+
+    Inverse of :func:`strip_keys`; same layered shape convention.
+    """
+    cos, sin = _align_layered(cos, sin)
+    x = content.to(torch.float32)
+    return (x * cos + rotate_half(x) * sin).to(dtype)
