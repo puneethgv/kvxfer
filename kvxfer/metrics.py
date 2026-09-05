@@ -181,7 +181,8 @@ def value_metric(model: torch.nn.Module, geometry: KVGeometry) -> HeadMetrics:
     )
 
     for layer_idx, layer in enumerate(layers):
-        w_o = layer.self_attn.o_proj.weight.detach().to(torch.float64).cpu()
+        # .cpu() first: MPS has no float64, and this must be exact.
+        w_o = layer.self_attn.o_proj.weight.detach().cpu().to(torch.float64)
         # o_proj maps (n_q_heads * head_dim) -> hidden, so columns are per head.
         for kv_head in range(geometry.n_kv_heads):
             acc = torch.zeros(head_dim, head_dim, dtype=torch.float64)

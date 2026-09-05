@@ -213,3 +213,36 @@ def test_key_metric_is_positive_semidefinite():
     evals = torch.linalg.eigvalsh(metric)
 
     assert evals.min().item() > -1e-8, f"metric is not PSD: min eigenvalue {evals.min():.2e}"
+
+
+@pytest.mark.slow
+def test_value_metric_from_a_real_model():
+    """The value metric must be computable and sane on real weights.
+
+    Reads o_proj on whatever device the model sits on, which is where an MPS
+    float64 restriction previously surfaced only at runtime.
+    """
+    import torch as t
+
+    from kvxfer.geometry import load_geometry
+    from kvxfer.metrics import value_metric
+    from kvxfer.models import load_model
+
+    model_id = "Qwen/Qwen3-0.6B"
+    geom = load_geometry(model_id)
+    model = load_model(model_id, dtype=t.float32)
+
+    metrics = value_metric(model, geom)
+
+    assert metrics.matrices.shape == (
+        geom.n_layers, geom.n_kv_heads, geom.head_dim, geom.head_dim
+    )
+    assert metrics.matrices.dtype == t.float64
+    evals = t.linalg.eigvalsh(metrics.matrices)
+    assert evals.min().item() > -1e-8, "W_O' W_O must be PSD"
+    assert evals.max().item() > 0, "metric should not be degenerate"
+
+    # Normalizing must leave each head at unit mean diagonal.
+    normalized = metrics.normalized()
+    mean_diag = normalized.matrices.diagonal(dim1=-2, dim2=-1).mean(-1)
+    assert t.allclose(mean_diag, t.ones_like(mean_diag), atol=1e-6)

@@ -120,6 +120,7 @@ def evaluate_task(
     mappers: dict[str, Mapper] | None = None,
     dtype: torch.dtype = torch.float32,
     progress_every: int = 50,
+    score_source_baseline: bool = True,
 ) -> RetentionResult:
     """Score a task under the target model and each supplied mapper.
 
@@ -134,6 +135,9 @@ def evaluate_task(
             entry using a zero mapper, which anchors the normalized scale.
         dtype: cache dtype for injection.
         progress_every: print progress every n items; 0 disables.
+        score_source_baseline: also score the source model standalone. This is
+            the decision-relevant comparison -- transfer is only worth doing if
+            it beats running the smaller model on its own.
 
     Returns:
         A :class:`RetentionResult` holding every condition's accuracy.
@@ -142,7 +146,10 @@ def evaluate_task(
     if mappers and source_model is None:
         raise ValueError("source_model is required when mappers are given")
 
-    counters = {name: [0, 0] for name in ["target", *mappers]}
+    names = ["target", *mappers]
+    if source_model is not None and score_source_baseline:
+        names.append("source")
+    counters = {name: [0, 0] for name in names}
 
     for index, example in enumerate(examples):
         correct, correct_norm = _score_choices(
@@ -150,6 +157,15 @@ def evaluate_task(
         )
         counters["target"][0] += int(correct == example.answer)
         counters["target"][1] += int(correct_norm == example.answer)
+
+        if "source" in counters:
+            # The practical decision baseline: if a transferred cache does not
+            # beat simply running the small model, transfer buys nothing.
+            hit, hit_norm = _score_choices(
+                source_model, tokenizer, example, template=None, n_cached=0
+            )
+            counters["source"][0] += int(hit == example.answer)
+            counters["source"][1] += int(hit_norm == example.answer)
 
         if mappers:
             context_ids = tokenizer(example.context, return_tensors="pt").input_ids

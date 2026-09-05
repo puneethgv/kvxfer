@@ -233,7 +233,7 @@ def main() -> None:
         print(f"\n  {task_name}:")
         for name, cond in outcome.conditions.items():
             line = f"    {name:10s} acc={cond.accuracy:.4f} +/- {cond.stderr():.4f}"
-            if name not in ("target", "floor"):
+            if name not in ("target", "floor", "source"):
                 line += (
                     f"  retention={outcome.retention(name):.1%}"
                     f"  floor-normalized={outcome.floor_normalized_retention(name):.1%}"
@@ -267,7 +267,7 @@ def main() -> None:
                 "retention": {
                     name: outcome.retention(name)
                     for name in outcome.conditions
-                    if name not in ("target",)
+                    if name != "target"
                 },
                 "floor_normalized_retention": {
                     name: outcome.floor_normalized_retention(name)
