@@ -249,7 +249,7 @@ def held_out_metric_r2(
     yty = stats.yty_head[fit.target_layer].to(**cpu64)
     n = float(stats.n_tokens)
 
-    w = fit.weight.to(**cpu64)
+    w = fit.dense().to(**cpu64)
     b = fit.bias.to(**cpu64)
 
     # Second moment of the prediction, and its cross moment with the target.

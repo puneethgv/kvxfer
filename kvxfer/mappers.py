@@ -87,6 +87,19 @@ class ZeroMapper(Mapper):
         )
 
 
+def _apply_on(fit: LinearMap, design: Tensor) -> Tensor:
+    """Apply a fitted map to a design block, on the design's device and dtype.
+
+    Routes through the factors when the map has them, so a rank-constrained
+    map never reconstitutes the dense matrix it exists to avoid.
+    """
+    bias = fit.bias.to(design.device, design.dtype)
+    if fit.factors is not None:
+        left, right = (f.to(design.device, design.dtype) for f in fit.factors)
+        return (design @ left) @ right + bias
+    return design @ fit.weight.to(design.device, design.dtype) + bias
+
+
 class FittedMapper(Mapper):
     """Applies fitted per-target-layer linear maps to a source cache.
 
@@ -149,9 +162,7 @@ class FittedMapper(Mapper):
         for layer in range(self.geometry.n_layers):
             fit = maps[layer]
             design = self._design(source, fit.source_layers)
-            weight = fit.weight.to(design.device, design.dtype)
-            bias = fit.bias.to(design.device, design.dtype)
-            predicted = design @ weight + bias
+            predicted = _apply_on(fit, design)
             out[layer] = predicted.reshape(
                 batch, seq, self.geometry.n_kv_heads, self.geometry.head_dim
             ).permute(0, 2, 1, 3)

@@ -410,7 +410,12 @@ def fit_mappers(
                 rank=rank,
             )
             elapsed[name] += time.time() - started
-            maps[name][kind] = layer_maps
+            # Compact before storing: a rank-constrained map carrying both the
+            # dense matrix and its factors costs more than the full-rank map it
+            # was meant to shrink.
+            maps[name][kind] = {
+                layer: fit.compact() for layer, fit in layer_maps.items()
+            }
             diagnostics[name][kind] = layer_diag
             clear_design_cache()
             gc.collect()

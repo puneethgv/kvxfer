@@ -186,3 +186,35 @@ def test_rank_must_be_positive():
     stats = _stats()
     with pytest.raises(ValueError, match="rank must be positive"):
         solve_low_rank(stats, tuple(range(N_SRC_LAYERS)), 0, rank=0)
+
+
+def test_compacting_preserves_the_map_it_applies():
+    """A compacted map must predict identically to the dense one.
+
+    Compaction drops the dense matrix and keeps the factors. If application
+    silently diverged, rank-constrained results would differ from what the
+    solver was tested to produce, and the difference would look like an effect
+    of the rank budget.
+    """
+    stats = _stats()
+    layers = tuple(range(N_SRC_LAYERS))
+    fit = solve_low_rank(
+        stats, layers, 0, rank=4, metrics=_anisotropic(),
+        n_kv_heads=N_KV_HEADS, head_dim=HEAD_DIM, lam=LAM,
+    )
+    compact = fit.compact()
+
+    assert compact.weight is None
+    assert torch.allclose(compact.dense(), fit.weight, atol=1e-5)
+
+    x = torch.randn(32, N_SRC_LAYERS * KV_DIM)
+    assert torch.allclose(compact.apply(x), fit.apply(x), atol=1e-4)
+    assert stored_parameters(compact) == stored_parameters(fit)
+
+
+def test_compacting_a_full_rank_map_is_a_no_op():
+    """Only factored maps can be compacted; a dense one must keep its matrix."""
+    stats = _stats()
+    fit = solve_ridge(stats, tuple(range(N_SRC_LAYERS)), 0, lam=LAM)
+    assert fit.compact() is fit
+    assert fit.compact().weight is not None

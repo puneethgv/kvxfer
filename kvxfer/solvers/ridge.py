@@ -14,7 +14,7 @@ per-head solution, and is far cheaper than fitting heads independently.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 import torch
 from torch import Tensor
@@ -27,7 +27,9 @@ class LinearMap:
     """An affine map from concatenated source layers to one target layer.
 
     Attributes:
-        weight: ``(k * kv_dim, target_kv_dim)``.
+        weight: ``(k * kv_dim, target_kv_dim)``, or ``None`` on a compacted
+            rank-constrained map, where ``factors`` carries it instead. Use
+            :meth:`dense` rather than reading it directly.
         bias: ``(target_kv_dim,)``.
         source_layers: which source layers the design concatenates, in order.
         target_layer: the target layer this map produces.
@@ -41,7 +43,7 @@ class LinearMap:
             is a property of the object rather than a claim about it.
     """
 
-    weight: Tensor
+    weight: Tensor | None
     bias: Tensor
     source_layers: tuple[int, ...]
     target_layer: int
@@ -49,8 +51,35 @@ class LinearMap:
     rank: int | None = None
     factors: tuple[Tensor, Tensor] | None = None
 
+    def dense(self) -> Tensor:
+        """The map as a full matrix, reconstructing it from factors if needed."""
+        if self.weight is not None:
+            return self.weight
+        left, right = self.factors
+        return left @ right
+
+    def compact(self) -> "LinearMap":
+        """Drop the dense matrix when factors can regenerate it.
+
+        A rank-constrained map that carries both costs *more* than the full-rank
+        map it was meant to shrink, which defeats the point of constraining the
+        rank at all.
+        """
+        if self.factors is None:
+            return self
+        return replace(self, weight=None)
+
     def apply(self, x: Tensor) -> Tensor:
-        """Map design rows ``(n_tokens, k * kv_dim)`` to ``(n_tokens, kv_dim)``."""
+        """Map design rows ``(n_tokens, k * kv_dim)`` to ``(n_tokens, kv_dim)``.
+
+        Applies the factors directly when present rather than reconstituting
+        the dense matrix. Besides saving the memory, it is the cheaper product:
+        at rank 128 a 4096x1024 map costs 655k multiply-adds per token through
+        the factors against 4.2M through the dense form.
+        """
+        if self.factors is not None:
+            left, right = self.factors
+            return (x @ left) @ right + self.bias
         return x @ self.weight + self.bias
 
 
@@ -200,7 +229,7 @@ def held_out_r2(stats: GramStats, fit: LinearMap) -> Tensor:
     yty = stats.yty_diag[fit.target_layer].to(**cpu64)
     n = float(stats.n_tokens)
 
-    w = fit.weight.to(**cpu64)
+    w = fit.dense().to(**cpu64)
     b = fit.bias.to(**cpu64)
 
     rss = (

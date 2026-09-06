@@ -27,7 +27,7 @@ KINDS = ("keys", "values")
 
 def _map_to_state(fit: LinearMap) -> dict:
     return {
-        "weight": fit.weight,
+        "weight": fit.weight,  # None on a compacted rank-constrained map
         "bias": fit.bias,
         "source_layers": list(fit.source_layers),
         "target_layer": fit.target_layer,
