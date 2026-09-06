@@ -35,6 +35,10 @@ class LinearMap:
             for diagnostics, but note that it is a poor predictor of downstream
             retention -- that mismatch is the motivation for the attention
             aligned solver.
+        rank: the rank the map was constrained to, or ``None`` if unconstrained.
+        factors: ``(left, right)`` with ``weight = left @ right``, when the map
+            was fitted under a rank constraint. Kept so that the storage saving
+            is a property of the object rather than a claim about it.
     """
 
     weight: Tensor
@@ -42,6 +46,8 @@ class LinearMap:
     source_layers: tuple[int, ...]
     target_layer: int
     r2: float
+    rank: int | None = None
+    factors: tuple[Tensor, Tensor] | None = None
 
     def apply(self, x: Tensor) -> Tensor:
         """Map design rows ``(n_tokens, k * kv_dim)`` to ``(n_tokens, kv_dim)``."""
