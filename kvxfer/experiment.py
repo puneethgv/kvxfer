@@ -33,9 +33,12 @@ from kvxfer.solvers.ridge import (
     select_top_k,
     solve_ridge,
 )
+from kvxfer.solvers.lowrank import solve_low_rank, stored_parameters
 from kvxfer.solvers.whitened import clear_design_cache, solve_whitened
 from kvxfer.stats import GramStats
 
+# The two full-rank conditions, always run: the reference method and the
+# attention-aligned objective. Rank-constrained variants are added on request.
 VARIANTS = ("ridge", "whitened")
 
 
@@ -63,6 +66,7 @@ class ExperimentConfig:
     lambdas: dict[str, dict[str, float]] = field(default_factory=dict)
     alpha: float = 1.0
     alphas: dict[str, float] = field(default_factory=dict)
+    rank: int = 0
     n_candidates: int = 6
     selection: str = "topk"
     metric_offset: int = 2048
@@ -141,6 +145,7 @@ def fit_all_layers(
     lam: float,
     label: str,
     alpha: float = 1.0,
+    rank: int = 0,
 ) -> tuple[dict, dict]:
     """Fit one map per target layer on a fixed layer selection.
 
@@ -148,6 +153,8 @@ def fit_all_layers(
         metrics: the attention-induced metric, or ``None`` for isotropic ridge.
         alpha: how far that metric reshapes the penalty; ignored when
             ``metrics`` is ``None``.
+        rank: if positive, constrain each map to this rank, with ``metrics``
+            deciding which directions survive.
 
     Returns:
         ``(maps, diagnostics)`` keyed by target layer.
@@ -157,7 +164,18 @@ def fit_all_layers(
 
     for layer in range(target_geom.n_layers):
         selected = selection[layer]
-        if metrics is None:
+        if rank:
+            fit = solve_low_rank(
+                fit_stats,
+                selected,
+                layer,
+                rank=rank,
+                metrics=metrics,
+                n_kv_heads=target_geom.n_kv_heads,
+                head_dim=target_geom.head_dim,
+                lam=lam,
+            )
+        elif metrics is None:
             fit = solve_ridge(fit_stats, selected, layer, lam=lam)
         else:
             fit = solve_whitened(
@@ -175,6 +193,7 @@ def fit_all_layers(
             "source_layers": list(selected),
             "in_sample_r2": round(fit.r2, 4),
             "held_out_r2": round(float(held_out_r2(val_stats, fit).mean()), 4),
+            "stored_parameters": stored_parameters(fit),
         }
         print(
             f"  [{label}] L{layer:02d} in-sample R2={fit.r2:.3f}  "
@@ -185,27 +204,49 @@ def fit_all_layers(
     return maps, diagnostics
 
 
-def _paired_nll_payload(ppl: dict) -> dict | None:
-    """Summarise the paired perplexity comparison, if both solvers ran."""
-    if not set(VARIANTS) <= set(ppl):
-        return None
-    paired = paired_nll(ppl["ridge"], ppl["whitened"])
-    return {
-        "mean_difference": paired.mean_difference,
-        "stderr": paired.stderr,
-        "t_statistic": paired.t_statistic,
-        "n_documents": paired.n_documents,
-        "n_better": paired.n_better,
-    }
+def _comparisons(names) -> list[tuple[str, str]]:
+    """Which conditions to test against each other, as (baseline, contender).
+
+    Every comparison is isotropic-versus-aligned at otherwise identical
+    settings, because that difference is the thing under test. Comparing across
+    ranks, or against the floor, would measure something nobody disputes.
+    """
+    names = set(names)
+    pairs = [("ridge", "whitened")]
+    pairs += [
+        (iso, iso.replace("_iso", "_aligned"))
+        for iso in sorted(names)
+        if iso.endswith("_iso") and iso.replace("_iso", "_aligned") in names
+    ]
+    return [pair for pair in pairs if set(pair) <= names]
+
+
+def _paired_nll_payload(ppl: dict) -> dict:
+    """Summarise every paired perplexity comparison that can be made."""
+    payload = {}
+    for baseline, contender in _comparisons(ppl):
+        paired = paired_nll(ppl[baseline], ppl[contender])
+        payload[f"{baseline}_vs_{contender}"] = {
+            "mean_difference": paired.mean_difference,
+            "stderr": paired.stderr,
+            "t_statistic": paired.t_statistic,
+            "n_documents": paired.n_documents,
+            "n_better": paired.n_better,
+        }
+    return payload
 
 
 def _task_payload(outcome) -> dict:
     """Serialise one task's outcome, keeping per-item results for re-analysis."""
-    paired = (
-        outcome.paired_test("ridge", "whitened")
-        if set(VARIANTS) <= set(outcome.conditions)
-        else None
-    )
+    paired = {}
+    for baseline, contender in _comparisons(outcome.conditions):
+        test = outcome.paired_test(baseline, contender)
+        paired[f"{baseline}_vs_{contender}"] = {
+            "difference": test.difference,
+            "p_value": test.p_value,
+            f"{baseline}_only": test.a_only,
+            f"{contender}_only": test.b_only,
+        }
     return {
         "conditions": {
             name: {
@@ -227,16 +268,7 @@ def _task_payload(outcome) -> dict:
             for name in outcome.conditions
             if name not in ("target", "floor")
         },
-        "paired_ridge_vs_whitened": (
-            {
-                "difference": paired.difference,
-                "p_value": paired.p_value,
-                "ridge_only": paired.a_only,
-                "whitened_only": paired.b_only,
-            }
-            if paired is not None
-            else None
-        ),
+        "paired": paired,
     }
 
 
@@ -294,6 +326,14 @@ def run_experiment(artifacts: str | Path, config: ExperimentConfig) -> dict:
         },
     }
 
+    # name -> (which metric to use, rank budget). The rank-constrained pair is
+    # deliberately isotropic-versus-aligned at the *same* rank: that isolates
+    # what the metric contributes from what the truncation contributes.
+    plan: dict[str, tuple[str, int]] = {"ridge": ("ridge", 0), "whitened": ("whitened", 0)}
+    if config.rank:
+        plan[f"rank{config.rank}_iso"] = ("ridge", config.rank)
+        plan[f"rank{config.rank}_aligned"] = ("whitened", config.rank)
+
     mappers: dict[str, object] = {"floor": ZeroMapper(target_geom)}
     diagnostics: dict[str, dict] = {}
 
@@ -313,14 +353,19 @@ def run_experiment(artifacts: str | Path, config: ExperimentConfig) -> dict:
         for kind in ("keys", "values")
     }
 
-    for name in VARIANTS:
-        penalties = {kind: config.penalty(name, kind) for kind in ("keys", "values")}
+    for name, (metric_name, rank) in plan.items():
+        penalties = {
+            kind: config.penalty(metric_name, kind) for kind in ("keys", "values")
+        }
         exponents = {kind: config.metric_exponent(kind) for kind in ("keys", "values")}
+        aligned = metric_name == "whitened"
         described = ", ".join(
             f"{kind} lambda={penalties[kind]:.0e}"
-            + (f" alpha={exponents[kind]:.2f}" if name == "whitened" else "")
+            + (f" alpha={exponents[kind]:.2f}" if aligned and not rank else "")
             for kind in ("keys", "values")
         )
+        if rank:
+            described += f", rank={rank}"
         print(f"\nfitting {name} ({described})")
         started = time.time()
         fitted = {}
@@ -329,24 +374,35 @@ def run_experiment(artifacts: str | Path, config: ExperimentConfig) -> dict:
                 stats[f"fit_{kind}"],
                 stats[f"val_{kind}"],
                 target_geom,
-                metrics[name][kind],
+                metrics[metric_name][kind],
                 selection[kind],
                 penalties[kind],
                 f"{name}/{kind[0].upper()}",
                 alpha=exponents[kind],
+                rank=rank,
             )
         clear_design_cache()
         mappers[name] = FittedMapper(
             fitted["keys"][0], fitted["values"][0], target_geom, label=name
         )
+        stored = sum(
+            layer["stored_parameters"]
+            for kind in ("keys", "values")
+            for layer in fitted[kind][1].values()
+        )
         diagnostics[name] = {
             "lambda": penalties,
-            "alpha": exponents if name == "whitened" else None,
+            "alpha": exponents if aligned and not rank else None,
+            "rank": rank or None,
+            "stored_parameters": stored,
             "keys": fitted["keys"][1],
             "values": fitted["values"][1],
             "fit_seconds": round(time.time() - started, 1),
         }
-        print(f"  fitted in {diagnostics[name]['fit_seconds']}s")
+        print(
+            f"  fitted in {diagnostics[name]['fit_seconds']}s, "
+            f"{stored / 1e6:.1f}M stored parameters"
+        )
 
     source_model = load_model(source_id, dtype=dtype)
 
@@ -378,8 +434,11 @@ def run_experiment(artifacts: str | Path, config: ExperimentConfig) -> dict:
             f"    {name:10s} ppl={res.perplexity:8.4f}  "
             f"nll={res.mean_nll:.5f} +/- {res.stderr():.5f}"
         )
-    if set(VARIANTS) <= set(ppl):
-        print(f"    paired: {paired_nll(ppl['ridge'], ppl['whitened'])}")
+    for baseline, contender in _comparisons(ppl):
+        print(
+            f"    paired {baseline} vs {contender}: "
+            f"{paired_nll(ppl[baseline], ppl[contender])}"
+        )
 
     results = {}
     for task_name in config.tasks:
@@ -409,8 +468,11 @@ def run_experiment(artifacts: str | Path, config: ExperimentConfig) -> dict:
         # The comparison that matters is paired: conditions are scored on
         # identical items, so per-condition standard errors overstate the
         # uncertainty of the difference between them.
-        if set(VARIANTS) <= set(outcome.conditions):
-            print(f"    paired: {outcome.paired_test('ridge', 'whitened')}")
+        for baseline, contender in _comparisons(outcome.conditions):
+            print(
+                f"    paired {baseline} vs {contender}: "
+                f"{outcome.paired_test(baseline, contender)}"
+            )
 
     return {
         "source": source_id,
@@ -428,7 +490,7 @@ def run_experiment(artifacts: str | Path, config: ExperimentConfig) -> dict:
             }
             for name, res in ppl.items()
         },
-        "perplexity_paired_ridge_vs_whitened": _paired_nll_payload(ppl),
+        "perplexity_paired": _paired_nll_payload(ppl),
         "layer_selection": {
             kind: {str(layer): list(v) for layer, v in sel.items()}
             for kind, sel in selection.items()

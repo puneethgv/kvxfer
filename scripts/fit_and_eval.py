@@ -73,6 +73,14 @@ def main() -> None:
         help="how far the attention metric reshapes the penalty, for any cache "
         "kind the --lambdas report does not cover; 0 is plain ridge",
     )
+    parser.add_argument(
+        "--rank",
+        type=int,
+        default=0,
+        help="if set, also fit rank-constrained maps at this rank, isotropic "
+        "and attention-aligned, so the metric's contribution to truncation is "
+        "measured against the same rank budget",
+    )
     parser.add_argument("--n-candidates", type=int, default=6)
     parser.add_argument(
         "--selection",
@@ -104,6 +112,7 @@ def main() -> None:
         lambdas=lambdas,
         alpha=args.alpha,
         alphas=alphas,
+        rank=args.rank,
         n_candidates=args.n_candidates,
         selection=args.selection,
         metric_offset=args.metric_offset,
