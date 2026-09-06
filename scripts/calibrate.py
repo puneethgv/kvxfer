@@ -25,73 +25,13 @@ from kvxfer.data import build_calibration
 from kvxfer.geometry import load_geometry
 from kvxfer.harvest import harvest, harvest_both
 from kvxfer.models import load_model, load_tokenizer
+from kvxfer.planning import accumulator_bytes, choose_harvest_strategy
 
 
 def pair_slug(source: str, target: str) -> str:
     """Filesystem-safe identifier for a model pair."""
     clean = lambda m: m.split("/")[-1].lower()
     return f"{clean(source)}__to__{clean(target)}"
-
-
-
-def _choose_passes(
-    setting: str, accumulator_bytes: int, source_model, target_model
-) -> bool:
-    """Decide whether to sweep keys and values together.
-
-    Sweeping together halves the model forward passes, which normally dominate
-    the cost. But it holds two accumulators at once, and on a memory-constrained
-    machine that is a false economy: exceeding physical memory costs far more
-    than the forward passes it saves. Measured on a 16 GB laptop, the
-    single-pass variant drove the system to 10.7 GB of swap and ran roughly
-    twenty times slower per sequence than two separate passes.
-
-    The estimate deliberately errs toward splitting. Model size is measured from
-    the loaded parameters rather than inferred from the config, which previously
-    understated it by about a gigabyte, and the headroom factor reflects that
-    the first attempt swapped at a projected 84% of the reported budget --
-    allocator fragmentation and the host's own demand are not visible here.
-
-    Args:
-        setting: "auto", "single", or "split".
-        accumulator_bytes: footprint of one accumulator.
-        source_model: the loaded source model.
-        target_model: the loaded target model.
-
-    Returns:
-        True to sweep both kinds together.
-    """
-    if setting == "single":
-        return True
-    if setting == "split":
-        return False
-
-    def model_bytes(model) -> int:
-        return sum(p.numel() * p.element_size() for p in model.parameters())
-
-    weights = model_bytes(source_model) + model_bytes(target_model)
-
-    try:
-        budget = torch.mps.recommended_max_memory()
-    except Exception:
-        budget = 0
-    if not budget:
-        budget = torch.cuda.get_device_properties(0).total_memory if torch.cuda.is_available() else 0
-    if not budget:
-        return False  # unknown budget: take the memory-safe option
-
-    # Activations, the float32 content copies for both models, and allocator
-    # slack. Set from what the failed run actually consumed, not from theory.
-    overhead = 3 * 1024**3
-    needed = 2 * accumulator_bytes + weights + overhead
-    fits = needed < 0.85 * budget
-    print(
-        f"  memory check: single-pass needs ~{needed / 1024**3:.1f} GB "
-        f"(weights {weights / 1024**3:.1f} + accumulators "
-        f"{2 * accumulator_bytes / 1024**3:.1f} + overhead 3.0) against a "
-        f"{budget / 1024**3:.1f} GB budget -> {'single' if fits else 'split'}"
-    )
-    return fits
 
 
 def main() -> None:
@@ -146,7 +86,7 @@ def main() -> None:
 
     layers = tuple(range(0, source_geom.n_layers, args.layer_stride))
     dim = len(layers) * source_geom.kv_dim
-    projected = (dim * dim + dim * target_geom.n_layers * target_geom.kv_dim) * 4
+    projected = accumulator_bytes(source_geom, target_geom, layers)
     print(
         f"\ncandidate source layers: {len(layers)} -> design dim {dim:,}"
         f"\nprojected accumulator: {projected / 1024**3:.2f} GB"
@@ -191,7 +131,9 @@ def main() -> None:
         "splits": {},
     }
 
-    use_single = _choose_passes(args.passes, projected, source_model, target_model)
+    use_single = choose_harvest_strategy(
+        args.passes, projected, source_model, target_model
+    )
     manifest["passes"] = "single" if use_single else "split"
     print(f"harvest strategy: {manifest['passes']}")
 

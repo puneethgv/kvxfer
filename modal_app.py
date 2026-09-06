@@ -14,7 +14,8 @@ should happen once:
   selection, penalty sweeps, both solvers -- is free.
 
 Usage:
-    modal run modal_app.py::calibrate --source Qwen/Qwen3-1.7B --target Qwen/Qwen3-4B
+    modal run modal_app.py --source Qwen/Qwen3-1.7B --target Qwen/Qwen3-4B
+    modal run modal_app.py::evaluate --artifacts qwen3-1.7b__to__qwen3-4b/web
     modal volume get kvxfer-artifacts /artifacts/... ./artifacts/
 """
 
@@ -80,12 +81,18 @@ def calibrate(
     layer_stride: int = 1,
     batch_size: int = 4,
     mixture: str = "web=1.0",
+    passes: str = "auto",
 ) -> dict:
     """Run a calibration pass and write statistics to the artifact Volume.
 
     The GPU here is doing prefill, which is compute-light relative to its
     memory footprint, so an L4 is usually the right price point. Step up only
     when the target model does not fit.
+
+    ``passes`` is decided by the same measured-memory rule the laptop uses. It
+    matters more here, not less: a 1.7B-to-4B pair over all 28 source layers
+    needs about 7.5 GB per accumulator, and holding two alongside 11 GB of
+    weights does not fit an L4 at all.
     """
     import json
     import time
@@ -95,8 +102,9 @@ def calibrate(
 
     from kvxfer.data import CalibrationSet, build_calibration
     from kvxfer.geometry import load_geometry
-    from kvxfer.harvest import harvest_both
+    from kvxfer.harvest import harvest, harvest_both
     from kvxfer.models import load_model, load_tokenizer
+    from kvxfer.planning import accumulator_bytes, choose_harvest_strategy
 
     weights = {
         part.split("=")[0]: float(part.split("=")[1]) for part in mixture.split(",")
@@ -105,6 +113,13 @@ def calibrate(
     print(source_geom, "\n", target_geom)
 
     layers = tuple(range(0, source_geom.n_layers, layer_stride))
+    projected = accumulator_bytes(source_geom, target_geom, layers)
+    print(
+        f"candidate source layers: {len(layers)} -> design dim "
+        f"{len(layers) * source_geom.kv_dim:,}\n"
+        f"projected accumulator: {projected / 1024**3:.2f} GB"
+    )
+
     tokenizer = load_tokenizer(source)
     corpus = build_calibration(
         tokenizer,
@@ -136,21 +151,41 @@ def calibrate(
         "val": CalibrationSet(corpus.input_ids[fit_sequences:], corpus.domains[fit_sequences:]),
     }
 
+    use_single = choose_harvest_strategy(
+        passes, projected, source_model, target_model
+    )
+    manifest["passes"] = "single" if use_single else "split"
+    print(f"harvest strategy: {manifest['passes']}")
+
     started = time.time()
     for split, subset in splits.items():
         print(f"\n[{split}] {len(subset)} sequences")
-        both, report = harvest_both(
-            source_model, target_model, source_geom, target_geom, subset,
-            source_layers=layers, token_stride=token_stride, batch_size=batch_size,
-        )
-        print(f"  {report}")
-        for kind, stats in both.items():
+        if use_single:
+            produced, report = harvest_both(
+                source_model, target_model, source_geom, target_geom, subset,
+                source_layers=layers, token_stride=token_stride,
+                batch_size=batch_size,
+            )
+            print(f"  {report}")
+        else:
+            produced = {}
+            for kind in ("keys", "values"):
+                print(f"  [{kind}]")
+                stats, report = harvest(
+                    source_model, target_model, source_geom, target_geom, subset,
+                    kind=kind, source_layers=layers, token_stride=token_stride,
+                    batch_size=batch_size,
+                )
+                print(f"  {report}")
+                produced[kind] = stats
+
+        for kind, stats in produced.items():
             stats.save(out_dir / f"{split}_{kind}.pt")
             manifest["splits"][f"{split}_{kind}"] = {
                 "n_tokens": report.n_tokens,
                 "seconds": round(report.seconds, 1),
             }
-        del both
+        del produced
 
     manifest["total_seconds"] = round(time.time() - started, 1)
     (out_dir / "manifest.json").write_text(json.dumps(manifest, indent=2))
@@ -159,9 +194,73 @@ def calibrate(
     return manifest
 
 
+@app.function(
+    gpu="L4",
+    volumes={CACHE_DIR: weights_volume, ARTIFACT_DIR: artifact_volume},
+    timeout=4 * 60 * 60,
+)
+def evaluate(
+    artifacts: str,
+    tasks: str = "arc_easy,arc_challenge",
+    limit: int = 300,
+    ppl_documents: int = 64,
+    k: int = 4,
+    lam: float = 1e-3,
+    alpha: float = 1.0,
+    dtype: str = "float32",
+) -> dict:
+    """Fit both solvers from cached statistics and evaluate them.
+
+    Runs :func:`kvxfer.experiment.run_experiment`, the same function the laptop
+    runs, so a pair measured here is comparable with a pair measured there.
+    Fitting is CPU linear algebra and could run anywhere; it stays in the same
+    function only because the evaluation immediately needs both models resident
+    and a second job would re-download nothing but still re-load them.
+
+    Args:
+        artifacts: path under the artifact Volume, e.g. ``pair-slug/web``.
+        tasks: comma-separated multiple-choice tasks.
+        limit: items per task.
+        ppl_documents: documents for the prefix-conditioned perplexity metric.
+        k: source layers per target layer.
+        lam: penalty, relative to the design scale.
+        alpha: how far the attention metric reshapes that penalty.
+        dtype: evaluation precision.
+
+    Returns:
+        The results payload, also written beside the statistics.
+    """
+    import json
+    from pathlib import Path
+
+    from kvxfer.experiment import ExperimentConfig, run_experiment
+
+    art = Path(ARTIFACT_DIR) / artifacts
+    config = ExperimentConfig(
+        tasks=tuple(tasks.split(",")),
+        limit=limit,
+        ppl_documents=ppl_documents,
+        k=k,
+        lam=lam,
+        alpha=alpha,
+        dtype=dtype,
+    )
+    payload = run_experiment(art, config)
+    (art / "results.json").write_text(json.dumps(payload, indent=2))
+    artifact_volume.commit()
+    print(f"\nwrote {art / 'results.json'}")
+    return payload
+
+
 @app.local_entrypoint()
 def main(source: str = "Qwen/Qwen3-1.7B", target: str = "Qwen/Qwen3-4B") -> None:
-    """Fetch weights once, then calibrate the pair."""
+    """Fetch weights once, calibrate the pair, then evaluate it."""
     fetch_weights.remote([source, target])
     manifest = calibrate.remote(source=source, target=target)
     print(f"calibration finished in {manifest['total_seconds']}s")
+
+    slug = f"{source.split('/')[-1].lower()}__to__{target.split('/')[-1].lower()}"
+    domain = "-".join(sorted(manifest["mixture"]))
+    payload = evaluate.remote(artifacts=f"{slug}/{domain}")
+    for name, result in payload["perplexity"].items():
+        print(f"  {name:10s} ppl={result['perplexity']:.4f}")
