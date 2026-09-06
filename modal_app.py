@@ -220,7 +220,7 @@ def evaluate(
     k: int = 4,
     lam: float = 1e-3,
     alpha: float = 1.0,
-    dtype: str = "float32",
+    dtype: str = "bfloat16",
 ) -> dict:
     """Fit both solvers from cached statistics and evaluate them.
 
@@ -238,7 +238,10 @@ def evaluate(
         k: source layers per target layer.
         lam: penalty, relative to the design scale.
         alpha: how far the attention metric reshapes that penalty.
-        dtype: evaluation precision.
+        dtype: evaluation precision. bfloat16 by default, matching both the
+            harvest and the local runs. float32 is not a safe default here: a
+            4B target costs 16 GB of weights rather than 8, and with the source
+            model alongside it does not fit a 22 GiB L4 at all.
 
     Returns:
         The results payload, also written beside the statistics.

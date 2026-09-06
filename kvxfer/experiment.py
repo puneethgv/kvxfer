@@ -27,7 +27,7 @@ from kvxfer.geometry import KVGeometry, load_geometry
 from kvxfer.mappers import FittedMapper, ZeroMapper
 from kvxfer.metrics import HeadMetrics, key_metric, value_metric
 from kvxfer.models import load_model, load_tokenizer
-from kvxfer.planning import release_memory
+from kvxfer.planning import device_budget, model_bytes, release_memory
 from kvxfer.queries import collect_query_moments
 from kvxfer.solvers.ridge import (
     held_out_r2,
@@ -89,7 +89,10 @@ class ExperimentConfig:
     selection: str = "topk"
     metric_offset: int = 2048
     query_sequences: int = 32
-    dtype: str = "float32"
+    # bfloat16 to match how the statistics were harvested and how these models
+    # are actually served. The correctness gates in tests/ pass float32
+    # explicitly, so dtype noise is never mistaken for mapper error there.
+    dtype: str = "bfloat16"
 
     def penalty(self, variant: str, kind: str) -> float:
         """Penalty for one solver on one cache kind, falling back to ``lam``."""
@@ -486,6 +489,17 @@ def evaluate_mappers(
     tokenizer = load_tokenizer(source_id)
     target_model = load_model(target_id, dtype=dtype)
     source_model = load_model(source_id, dtype=dtype)
+
+    # Both models are resident for the rest of this function, so say what that
+    # cost. Evaluating a 4B target in float32 rather than bfloat16 doubles it
+    # and does not fit a 22 GiB card; that failed twice before the default was
+    # corrected, and silently, because nothing reported the size.
+    resident = model_bytes(target_model) + model_bytes(source_model)
+    free = device_budget()
+    print(
+        f"\nmodels resident in {config.dtype}: {resident / 1024**3:.1f} GB"
+        + (f", {free / 1024**3:.1f} GB free" if free else "")
+    )
 
     conditions: dict[str, object] = {"floor": ZeroMapper(target_geom)}
     conditions.update(mappers)

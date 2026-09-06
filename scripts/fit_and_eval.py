@@ -52,7 +52,13 @@ def main() -> None:
         "those maps instead of refitting, so the statistics never have to be "
         "resident alongside the models",
     )
-    parser.add_argument("--tasks", default="arc_easy,arc_challenge")
+    parser.add_argument(
+        "--tasks",
+        default="arc_easy,arc_challenge",
+        help="comma-separated multiple-choice tasks; pass an empty string to "
+        "measure perplexity alone, which is the high-resolution metric and "
+        "enough for sweeps where the tasks would only add noise and time",
+    )
     parser.add_argument(
         "--ppl-documents",
         type=int,
@@ -110,7 +116,13 @@ def main() -> None:
     )
     parser.add_argument("--metric-offset", type=int, default=2048)
     parser.add_argument("--query-sequences", type=int, default=32)
-    parser.add_argument("--dtype", default="float32", choices=["bfloat16", "float32"])
+    parser.add_argument(
+        "--dtype",
+        default="bfloat16",
+        choices=["bfloat16", "float32"],
+        help="matches the dtype calibration harvested in and the one these "
+        "models are served in; float32 doubles the resident weights",
+    )
     parser.add_argument("--out", default="results")
     args = parser.parse_args()
 
@@ -119,7 +131,7 @@ def main() -> None:
         print(f"settings from {args.lambdas}: lambdas={lambdas} alphas={alphas}")
 
     config = ExperimentConfig(
-        tasks=tuple(args.tasks.split(",")),
+        tasks=tuple(t for t in args.tasks.split(",") if t.strip()),
         limit=args.limit,
         ppl_documents=args.ppl_documents,
         ppl_seq_len=args.ppl_seq_len,
