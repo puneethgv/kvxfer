@@ -23,7 +23,7 @@ import torch
 
 from kvxfer.data import build_calibration
 from kvxfer.geometry import load_geometry
-from kvxfer.harvest import harvest_both
+from kvxfer.harvest import harvest, harvest_both
 from kvxfer.models import load_model, load_tokenizer
 
 
@@ -31,6 +31,67 @@ def pair_slug(source: str, target: str) -> str:
     """Filesystem-safe identifier for a model pair."""
     clean = lambda m: m.split("/")[-1].lower()
     return f"{clean(source)}__to__{clean(target)}"
+
+
+
+def _choose_passes(
+    setting: str, accumulator_bytes: int, source_model, target_model
+) -> bool:
+    """Decide whether to sweep keys and values together.
+
+    Sweeping together halves the model forward passes, which normally dominate
+    the cost. But it holds two accumulators at once, and on a memory-constrained
+    machine that is a false economy: exceeding physical memory costs far more
+    than the forward passes it saves. Measured on a 16 GB laptop, the
+    single-pass variant drove the system to 10.7 GB of swap and ran roughly
+    twenty times slower per sequence than two separate passes.
+
+    The estimate deliberately errs toward splitting. Model size is measured from
+    the loaded parameters rather than inferred from the config, which previously
+    understated it by about a gigabyte, and the headroom factor reflects that
+    the first attempt swapped at a projected 84% of the reported budget --
+    allocator fragmentation and the host's own demand are not visible here.
+
+    Args:
+        setting: "auto", "single", or "split".
+        accumulator_bytes: footprint of one accumulator.
+        source_model: the loaded source model.
+        target_model: the loaded target model.
+
+    Returns:
+        True to sweep both kinds together.
+    """
+    if setting == "single":
+        return True
+    if setting == "split":
+        return False
+
+    def model_bytes(model) -> int:
+        return sum(p.numel() * p.element_size() for p in model.parameters())
+
+    weights = model_bytes(source_model) + model_bytes(target_model)
+
+    try:
+        budget = torch.mps.recommended_max_memory()
+    except Exception:
+        budget = 0
+    if not budget:
+        budget = torch.cuda.get_device_properties(0).total_memory if torch.cuda.is_available() else 0
+    if not budget:
+        return False  # unknown budget: take the memory-safe option
+
+    # Activations, the float32 content copies for both models, and allocator
+    # slack. Set from what the failed run actually consumed, not from theory.
+    overhead = 3 * 1024**3
+    needed = 2 * accumulator_bytes + weights + overhead
+    fits = needed < 0.85 * budget
+    print(
+        f"  memory check: single-pass needs ~{needed / 1024**3:.1f} GB "
+        f"(weights {weights / 1024**3:.1f} + accumulators "
+        f"{2 * accumulator_bytes / 1024**3:.1f} + overhead 3.0) against a "
+        f"{budget / 1024**3:.1f} GB budget -> {'single' if fits else 'split'}"
+    )
+    return fits
 
 
 def main() -> None:
@@ -60,6 +121,16 @@ def main() -> None:
     )
     parser.add_argument("--out", default="artifacts")
     parser.add_argument("--dtype", default="bfloat16", choices=["bfloat16", "float32"])
+    parser.add_argument(
+        "--passes",
+        default="auto",
+        choices=["auto", "single", "split"],
+        help="single sweeps keys and values together, halving forward passes but "
+        "holding two accumulators; split sweeps them separately, halving peak "
+        "memory. auto chooses by comparing the projected footprint against "
+        "available memory -- on a machine that would swap, split is far faster "
+        "despite doing twice the model work",
+    )
     args = parser.parse_args()
 
     mixture = {
@@ -120,23 +191,38 @@ def main() -> None:
         "splits": {},
     }
 
+    use_single = _choose_passes(args.passes, projected, source_model, target_model)
+    manifest["passes"] = "single" if use_single else "split"
+    print(f"harvest strategy: {manifest['passes']}")
+
     started = time.time()
     for split, corpus_split in splits.items():
-        # Keys and values share the same forward passes, which dominate the
-        # cost, so both are accumulated in one sweep over the split.
         print(f"\n[{split}] harvesting {len(corpus_split)} sequences")
-        both, report = harvest_both(
-            source_model,
-            target_model,
-            source_geom,
-            target_geom,
-            corpus_split,
-            source_layers=layers,
-            token_stride=args.token_stride,
-            batch_size=args.batch_size,
-        )
-        print(f"  {report}")
-        for kind, stats in both.items():
+        if use_single:
+            # Keys and values share the same forward passes, which dominate,
+            # so one sweep does both.
+            produced, report = harvest_both(
+                source_model, target_model, source_geom, target_geom, corpus_split,
+                source_layers=layers, token_stride=args.token_stride,
+                batch_size=args.batch_size,
+            )
+            print(f"  {report}")
+        else:
+            # Two sweeps, one accumulator at a time. Twice the model work, half
+            # the peak memory -- the right trade whenever holding both would
+            # push the machine into swap.
+            produced = {}
+            for kind in ("keys", "values"):
+                print(f"  [{kind}]")
+                stats, report = harvest(
+                    source_model, target_model, source_geom, target_geom, corpus_split,
+                    kind=kind, source_layers=layers, token_stride=args.token_stride,
+                    batch_size=args.batch_size,
+                )
+                print(f"  {report}")
+                produced[kind] = stats
+
+        for kind, stats in produced.items():
             path = out_dir / f"{split}_{kind}.pt"
             stats.save(path)
             print(f"  saved {path}")
@@ -145,7 +231,7 @@ def main() -> None:
                 "seconds": round(report.seconds, 1),
                 "path": str(path),
             }
-        del both
+        del produced
 
     manifest["total_seconds"] = round(time.time() - started, 1)
     (out_dir / "manifest.json").write_text(json.dumps(manifest, indent=2))
