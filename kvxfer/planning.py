@@ -15,6 +15,8 @@ slow until the bill arrives.
 
 from __future__ import annotations
 
+import gc
+
 import torch
 
 from kvxfer.geometry import KVGeometry
@@ -28,6 +30,26 @@ _SLACK_BYTES = 1536 * 1024**2
 # reported budget: allocator fragmentation and the host's own demand are not
 # visible from inside the process, so leave room for them.
 _HEADROOM = 0.85
+
+
+def release_memory() -> None:
+    """Return freed tensors to the driver, not merely to Python.
+
+    ``del`` plus a collection drops the Python reference, but PyTorch's caching
+    allocator holds the device memory for reuse, and a later allocation of a
+    different shape may not reuse it. Freeing a model between phases therefore
+    looks like it worked and frees nothing: an 8 GB target model released
+    before fitting stayed resident, and reloading it for evaluation ran a 22 GiB
+    card out of memory.
+    """
+    gc.collect()
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+        return
+    try:
+        torch.mps.empty_cache()
+    except Exception:
+        pass
 
 
 def accumulator_bytes(

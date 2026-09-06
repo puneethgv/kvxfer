@@ -27,6 +27,7 @@ from kvxfer.geometry import KVGeometry, load_geometry
 from kvxfer.mappers import FittedMapper, ZeroMapper
 from kvxfer.metrics import HeadMetrics, key_metric, value_metric
 from kvxfer.models import load_model, load_tokenizer
+from kvxfer.planning import release_memory
 from kvxfer.queries import collect_query_moments
 from kvxfer.solvers.ridge import (
     held_out_r2,
@@ -351,7 +352,7 @@ def fit_mappers(
     # The target model is not needed again here, and the fitting that follows
     # wants the memory for statistics.
     del q_moments, probe, target_model, tokenizer
-    gc.collect()
+    release_memory()
 
     plan = variant_plan(config)
     maps: dict[str, dict[str, dict[int, object]]] = {name: {} for name in plan}
@@ -421,7 +422,7 @@ def fit_mappers(
             gc.collect()
 
         del fit_stats, val_stats
-        gc.collect()
+        release_memory()
 
     for name, (metric_name, rank) in plan.items():
         stored = sum(
@@ -589,5 +590,5 @@ def run_experiment(artifacts: str | Path, config: ExperimentConfig) -> dict:
         for name, by_kind in maps.items()
     }
     del maps
-    gc.collect()
+    release_memory()
     return evaluate_mappers(mappers, metadata, config)
