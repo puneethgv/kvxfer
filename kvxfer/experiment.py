@@ -179,7 +179,16 @@ def fit_all_layers(
     maps: dict[int, object] = {}
     diagnostics: dict[int, dict] = {}
 
-    for layer in range(target_geom.n_layers):
+    # Fit layers that chose the same source subset together. The attention
+    # aligned solve is dominated by one eigendecomposition of the design Gram,
+    # which depends only on that subset -- 12 distinct subsets across 28 target
+    # layers on this pair. Visiting them grouped means each decomposition is
+    # computed exactly once behind a single-entry cache, instead of being
+    # recomputed whenever an interleaved layer evicts it. Scattered order with
+    # a small cache cost 4038s here against 34s for the isotropic solve.
+    grouped = sorted(range(target_geom.n_layers), key=lambda l: selection[l])
+
+    for layer in grouped:
         selected = selection[layer]
         if rank:
             fit = solve_low_rank(
@@ -218,7 +227,12 @@ def fit_all_layers(
             flush=True,
         )
 
-    return maps, diagnostics
+    # Restore layer order, so the stored maps and diagnostics read naturally
+    # regardless of the order they were fitted in.
+    return (
+        {layer: maps[layer] for layer in sorted(maps)},
+        {layer: diagnostics[layer] for layer in sorted(diagnostics)},
+    )
 
 
 def _comparisons(names) -> list[tuple[str, str]]:
