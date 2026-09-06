@@ -1,0 +1,513 @@
+{
+  "target": "Qwen/Qwen3-1.7B",
+  "k": 4,
+  "layers": [
+    0,
+    7,
+    14,
+    27
+  ],
+  "alphas": [
+    0.0,
+    0.25,
+    0.5,
+    0.75,
+    1.0
+  ],
+  "sweeps": {
+    "keys": {
+      "rows": [
+        {
+          "lambda": 1e-05,
+          "alpha": 0.0,
+          "ridge_isotropic_r2": 0.6552972848557017,
+          "ridge_metric_r2": 0.7700405511738646,
+          "whitened_isotropic_r2": 0.655297284855169,
+          "whitened_metric_r2": 0.7700405511712046
+        },
+        {
+          "lambda": 1e-05,
+          "alpha": 0.25,
+          "ridge_isotropic_r2": 0.6552972848557017,
+          "ridge_metric_r2": 0.7700405511738646,
+          "whitened_isotropic_r2": 0.6547161205998926,
+          "whitened_metric_r2": 0.7700354608388328
+        },
+        {
+          "lambda": 1e-05,
+          "alpha": 0.5,
+          "ridge_isotropic_r2": 0.6552972848557017,
+          "ridge_metric_r2": 0.7700405511738646,
+          "whitened_isotropic_r2": 0.6528039346268434,
+          "whitened_metric_r2": 0.7700290857073511
+        },
+        {
+          "lambda": 1e-05,
+          "alpha": 0.75,
+          "ridge_isotropic_r2": 0.6552972848557017,
+          "ridge_metric_r2": 0.7700405511738646,
+          "whitened_isotropic_r2": 0.6482147471456583,
+          "whitened_metric_r2": 0.7700099000835106
+        },
+        {
+          "lambda": 1e-05,
+          "alpha": 1.0,
+          "ridge_isotropic_r2": 0.6552972848557017,
+          "ridge_metric_r2": 0.7700405511738646,
+          "whitened_isotropic_r2": 0.6373572906670545,
+          "whitened_metric_r2": 0.7699588042920777
+        },
+        {
+          "lambda": 0.0001,
+          "alpha": 0.0,
+          "ridge_isotropic_r2": 0.6542165274819172,
+          "ridge_metric_r2": 0.7699048420397883,
+          "whitened_isotropic_r2": 0.6542165274817996,
+          "whitened_metric_r2": 0.76990484203957
+        },
+        {
+          "lambda": 0.0001,
+          "alpha": 0.25,
+          "ridge_isotropic_r2": 0.6542165274819172,
+          "ridge_metric_r2": 0.7699048420397883,
+          "whitened_isotropic_r2": 0.6522982290630296,
+          "whitened_metric_r2": 0.7698737554404242
+        },
+        {
+          "lambda": 0.0001,
+          "alpha": 0.5,
+          "ridge_isotropic_r2": 0.6542165274819172,
+          "ridge_metric_r2": 0.7699048420397883,
+          "whitened_isotropic_r2": 0.6432875390096116,
+          "whitened_metric_r2": 0.769806890852281
+        },
+        {
+          "lambda": 0.0001,
+          "alpha": 0.75,
+          "ridge_isotropic_r2": 0.6542165274819172,
+          "ridge_metric_r2": 0.7699048420397883,
+          "whitened_isotropic_r2": 0.6200265269385813,
+          "whitened_metric_r2": 0.7696766976384629
+        },
+        {
+          "lambda": 0.0001,
+          "alpha": 1.0,
+          "ridge_isotropic_r2": 0.6542165274819172,
+          "ridge_metric_r2": 0.7699048420397883,
+          "whitened_isotropic_r2": 0.5727575470061705,
+          "whitened_metric_r2": 0.7694426976355934
+        },
+        {
+          "lambda": 0.001,
+          "alpha": 0.0,
+          "ridge_isotropic_r2": 0.6520288862556152,
+          "ridge_metric_r2": 0.7687265583046359,
+          "whitened_isotropic_r2": 0.6520288862554385,
+          "whitened_metric_r2": 0.7687265583044746
+        },
+        {
+          "lambda": 0.001,
+          "alpha": 0.25,
+          "ridge_isotropic_r2": 0.6520288862556152,
+          "ridge_metric_r2": 0.7687265583046359,
+          "whitened_isotropic_r2": 0.6435265867559421,
+          "whitened_metric_r2": 0.7684859489172495
+        },
+        {
+          "lambda": 0.001,
+          "alpha": 0.5,
+          "ridge_isotropic_r2": 0.6520288862556152,
+          "ridge_metric_r2": 0.7687265583046359,
+          "whitened_isotropic_r2": 0.6120462708299588,
+          "whitened_metric_r2": 0.7680705992597232
+        },
+        {
+          "lambda": 0.001,
+          "alpha": 0.75,
+          "ridge_isotropic_r2": 0.6520288862556152,
+          "ridge_metric_r2": 0.7687265583046359,
+          "whitened_isotropic_r2": 0.5453580616019167,
+          "whitened_metric_r2": 0.7674429300531409
+        },
+        {
+          "lambda": 0.001,
+          "alpha": 1.0,
+          "ridge_isotropic_r2": 0.6520288862556152,
+          "ridge_metric_r2": 0.7687265583046359,
+          "whitened_isotropic_r2": 0.4280472339226615,
+          "whitened_metric_r2": 0.7665684131988358
+        },
+        {
+          "lambda": 0.01,
+          "alpha": 0.0,
+          "ridge_isotropic_r2": 0.6404129974541433,
+          "ridge_metric_r2": 0.7614755815546196,
+          "whitened_isotropic_r2": 0.6404129974540234,
+          "whitened_metric_r2": 0.7614755815546064
+        },
+        {
+          "lambda": 0.01,
+          "alpha": 0.25,
+          "ridge_isotropic_r2": 0.6404129974541433,
+          "ridge_metric_r2": 0.7614755815546196,
+          "whitened_isotropic_r2": 0.6190056020442399,
+          "whitened_metric_r2": 0.7607067415988993
+        },
+        {
+          "lambda": 0.01,
+          "alpha": 0.5,
+          "ridge_isotropic_r2": 0.6404129974541433,
+          "ridge_metric_r2": 0.7614755815546196,
+          "whitened_isotropic_r2": 0.5469856922258054,
+          "whitened_metric_r2": 0.7594960908265835
+        },
+        {
+          "lambda": 0.01,
+          "alpha": 0.75,
+          "ridge_isotropic_r2": 0.6404129974541433,
+          "ridge_metric_r2": 0.7614755815546196,
+          "whitened_isotropic_r2": 0.4003543078964227,
+          "whitened_metric_r2": 0.7578232703186338
+        },
+        {
+          "lambda": 0.01,
+          "alpha": 1.0,
+          "ridge_isotropic_r2": 0.6404129974541433,
+          "ridge_metric_r2": 0.7614755815546196,
+          "whitened_isotropic_r2": 0.14667764005093412,
+          "whitened_metric_r2": 0.7556840254521309
+        },
+        {
+          "lambda": 0.1,
+          "alpha": 0.0,
+          "ridge_isotropic_r2": 0.6045233286847781,
+          "ridge_metric_r2": 0.7385649399880776,
+          "whitened_isotropic_r2": 0.6045233286848043,
+          "whitened_metric_r2": 0.7385649399880936
+        },
+        {
+          "lambda": 0.1,
+          "alpha": 0.25,
+          "ridge_isotropic_r2": 0.6045233286847781,
+          "ridge_metric_r2": 0.7385649399880776,
+          "whitened_isotropic_r2": 0.5576540891673337,
+          "whitened_metric_r2": 0.7368220749653338
+        },
+        {
+          "lambda": 0.1,
+          "alpha": 0.5,
+          "ridge_isotropic_r2": 0.6045233286847781,
+          "ridge_metric_r2": 0.7385649399880776,
+          "whitened_isotropic_r2": 0.40430738161484786,
+          "whitened_metric_r2": 0.7342931294802908
+        },
+        {
+          "lambda": 0.1,
+          "alpha": 0.75,
+          "ridge_isotropic_r2": 0.6045233286847781,
+          "ridge_metric_r2": 0.7385649399880776,
+          "whitened_isotropic_r2": 0.1006285706633559,
+          "whitened_metric_r2": 0.731028056376119
+        },
+        {
+          "lambda": 0.1,
+          "alpha": 1.0,
+          "ridge_isotropic_r2": 0.6045233286847781,
+          "ridge_metric_r2": 0.7385649399880776,
+          "whitened_isotropic_r2": -0.3999354946157859,
+          "whitened_metric_r2": 0.7269828791383349
+        },
+        {
+          "lambda": 1.0,
+          "alpha": 0.0,
+          "ridge_isotropic_r2": 0.5260873687634209,
+          "ridge_metric_r2": 0.682198378241085,
+          "whitened_isotropic_r2": 0.5260873687634197,
+          "whitened_metric_r2": 0.6821983782410967
+        },
+        {
+          "lambda": 1.0,
+          "alpha": 0.25,
+          "ridge_isotropic_r2": 0.5260873687634209,
+          "ridge_metric_r2": 0.682198378241085,
+          "whitened_isotropic_r2": 0.43882932717604084,
+          "whitened_metric_r2": 0.6801934850595599
+        },
+        {
+          "lambda": 1.0,
+          "alpha": 0.5,
+          "ridge_isotropic_r2": 0.5260873687634209,
+          "ridge_metric_r2": 0.682198378241085,
+          "whitened_isotropic_r2": 0.1694090963608882,
+          "whitened_metric_r2": 0.6766863034388261
+        },
+        {
+          "lambda": 1.0,
+          "alpha": 0.75,
+          "ridge_isotropic_r2": 0.5260873687634209,
+          "ridge_metric_r2": 0.682198378241085,
+          "whitened_isotropic_r2": -0.30122795901431065,
+          "whitened_metric_r2": 0.6717853242223224
+        },
+        {
+          "lambda": 1.0,
+          "alpha": 1.0,
+          "ridge_isotropic_r2": 0.5260873687634209,
+          "ridge_metric_r2": 0.682198378241085,
+          "whitened_isotropic_r2": -0.9484443830952362,
+          "whitened_metric_r2": 0.6656775829657479
+        }
+      ],
+      "best_ridge_lambda": 1e-05,
+      "best_whitened_lambda": 1e-05,
+      "best_whitened_alpha": 0.0
+    },
+    "values": {
+      "rows": [
+        {
+          "lambda": 1e-05,
+          "alpha": 0.0,
+          "ridge_isotropic_r2": 0.5574137292307835,
+          "ridge_metric_r2": 0.5664613106887476,
+          "whitened_isotropic_r2": 0.5574137292426972,
+          "whitened_metric_r2": 0.5664613107470218
+        },
+        {
+          "lambda": 1e-05,
+          "alpha": 0.25,
+          "ridge_isotropic_r2": 0.5574137292307835,
+          "ridge_metric_r2": 0.5664613106887476,
+          "whitened_isotropic_r2": 0.5574110893147575,
+          "whitened_metric_r2": 0.5664565847563633
+        },
+        {
+          "lambda": 1e-05,
+          "alpha": 0.5,
+          "ridge_isotropic_r2": 0.5574137292307835,
+          "ridge_metric_r2": 0.5664613106887476,
+          "whitened_isotropic_r2": 0.5574067231460761,
+          "whitened_metric_r2": 0.5664495063149153
+        },
+        {
+          "lambda": 1e-05,
+          "alpha": 0.75,
+          "ridge_isotropic_r2": 0.5574137292307835,
+          "ridge_metric_r2": 0.5664613106887476,
+          "whitened_isotropic_r2": 0.5574001443914589,
+          "whitened_metric_r2": 0.5664390479082662
+        },
+        {
+          "lambda": 1e-05,
+          "alpha": 1.0,
+          "ridge_isotropic_r2": 0.5574137292307835,
+          "ridge_metric_r2": 0.5664613106887476,
+          "whitened_isotropic_r2": 0.5573906921487053,
+          "whitened_metric_r2": 0.5664238124749794
+        },
+        {
+          "lambda": 0.0001,
+          "alpha": 0.0,
+          "ridge_isotropic_r2": 0.5572482986440975,
+          "ridge_metric_r2": 0.5663177495951476,
+          "whitened_isotropic_r2": 0.5572482986448436,
+          "whitened_metric_r2": 0.5663177495929181
+        },
+        {
+          "lambda": 0.0001,
+          "alpha": 0.25,
+          "ridge_isotropic_r2": 0.5572482986440975,
+          "ridge_metric_r2": 0.5663177495951476,
+          "whitened_isotropic_r2": 0.5572448255916745,
+          "whitened_metric_r2": 0.5663181960434418
+        },
+        {
+          "lambda": 0.0001,
+          "alpha": 0.5,
+          "ridge_isotropic_r2": 0.5572482986440975,
+          "ridge_metric_r2": 0.5663177495951476,
+          "whitened_isotropic_r2": 0.5572398581563041,
+          "whitened_metric_r2": 0.5663176322961682
+        },
+        {
+          "lambda": 0.0001,
+          "alpha": 0.75,
+          "ridge_isotropic_r2": 0.5572482986440975,
+          "ridge_metric_r2": 0.5663177495951476,
+          "whitened_isotropic_r2": 0.5572333458072329,
+          "whitened_metric_r2": 0.5663160961982764
+        },
+        {
+          "lambda": 0.0001,
+          "alpha": 1.0,
+          "ridge_isotropic_r2": 0.5572482986440975,
+          "ridge_metric_r2": 0.5663177495951476,
+          "whitened_isotropic_r2": 0.557225184822434,
+          "whitened_metric_r2": 0.5663135753422935
+        },
+        {
+          "lambda": 0.001,
+          "alpha": 0.0,
+          "ridge_isotropic_r2": 0.5557339658289495,
+          "ridge_metric_r2": 0.564941576041056,
+          "whitened_isotropic_r2": 0.5557339658293616,
+          "whitened_metric_r2": 0.5649415760421006
+        },
+        {
+          "lambda": 0.001,
+          "alpha": 0.25,
+          "ridge_isotropic_r2": 0.5557339658289495,
+          "ridge_metric_r2": 0.564941576041056,
+          "whitened_isotropic_r2": 0.555726152301444,
+          "whitened_metric_r2": 0.5649527101746402
+        },
+        {
+          "lambda": 0.001,
+          "alpha": 0.5,
+          "ridge_isotropic_r2": 0.5557339658289495,
+          "ridge_metric_r2": 0.564941576041056,
+          "whitened_isotropic_r2": 0.5557134555237805,
+          "whitened_metric_r2": 0.5649595604090244
+        },
+        {
+          "lambda": 0.001,
+          "alpha": 0.75,
+          "ridge_isotropic_r2": 0.5557339658289495,
+          "ridge_metric_r2": 0.564941576041056,
+          "whitened_isotropic_r2": 0.5556957078574714,
+          "whitened_metric_r2": 0.5649623718721667
+        },
+        {
+          "lambda": 0.001,
+          "alpha": 1.0,
+          "ridge_isotropic_r2": 0.5557339658289495,
+          "ridge_metric_r2": 0.564941576041056,
+          "whitened_isotropic_r2": 0.55567263857903,
+          "whitened_metric_r2": 0.5649613038768957
+        },
+        {
+          "lambda": 0.01,
+          "alpha": 0.0,
+          "ridge_isotropic_r2": 0.5494806565599915,
+          "ridge_metric_r2": 0.5592686603637291,
+          "whitened_isotropic_r2": 0.5494806565600514,
+          "whitened_metric_r2": 0.5592686603638533
+        },
+        {
+          "lambda": 0.01,
+          "alpha": 0.25,
+          "ridge_isotropic_r2": 0.5494806565599915,
+          "ridge_metric_r2": 0.5592686603637291,
+          "whitened_isotropic_r2": 0.5494632782214266,
+          "whitened_metric_r2": 0.5593353108992146
+        },
+        {
+          "lambda": 0.01,
+          "alpha": 0.5,
+          "ridge_isotropic_r2": 0.5494806565599915,
+          "ridge_metric_r2": 0.5592686603637291,
+          "whitened_isotropic_r2": 0.5494276383527151,
+          "whitened_metric_r2": 0.5593836883077955
+        },
+        {
+          "lambda": 0.01,
+          "alpha": 0.75,
+          "ridge_isotropic_r2": 0.5494806565599915,
+          "ridge_metric_r2": 0.5592686603637291,
+          "whitened_isotropic_r2": 0.5493732120435106,
+          "whitened_metric_r2": 0.5594147067998764
+        },
+        {
+          "lambda": 0.01,
+          "alpha": 1.0,
+          "ridge_isotropic_r2": 0.5494806565599915,
+          "ridge_metric_r2": 0.5592686603637291,
+          "whitened_isotropic_r2": 0.5492991590635574,
+          "whitened_metric_r2": 0.5594289052343152
+        },
+        {
+          "lambda": 0.1,
+          "alpha": 0.0,
+          "ridge_isotropic_r2": 0.4600769579207111,
+          "ridge_metric_r2": 0.47801274653365133,
+          "whitened_isotropic_r2": 0.46007695792071734,
+          "whitened_metric_r2": 0.47801274653365733
+        },
+        {
+          "lambda": 0.1,
+          "alpha": 0.25,
+          "ridge_isotropic_r2": 0.4600769579207111,
+          "ridge_metric_r2": 0.47801274653365133,
+          "whitened_isotropic_r2": 0.46008541154720645,
+          "whitened_metric_r2": 0.47837924879092525
+        },
+        {
+          "lambda": 0.1,
+          "alpha": 0.5,
+          "ridge_isotropic_r2": 0.4600769579207111,
+          "ridge_metric_r2": 0.47801274653365133,
+          "whitened_isotropic_r2": 0.46006823505502126,
+          "whitened_metric_r2": 0.47873048959425046
+        },
+        {
+          "lambda": 0.1,
+          "alpha": 0.75,
+          "ridge_isotropic_r2": 0.4600769579207111,
+          "ridge_metric_r2": 0.47801274653365133,
+          "whitened_isotropic_r2": 0.46002273963243534,
+          "whitened_metric_r2": 0.47906376758277175
+        },
+        {
+          "lambda": 0.1,
+          "alpha": 1.0,
+          "ridge_isotropic_r2": 0.4600769579207111,
+          "ridge_metric_r2": 0.47801274653365133,
+          "whitened_isotropic_r2": 0.45994509706139824,
+          "whitened_metric_r2": 0.4793744573942744
+        },
+        {
+          "lambda": 1.0,
+          "alpha": 0.0,
+          "ridge_isotropic_r2": 0.39044045962640106,
+          "ridge_metric_r2": 0.41430944707133743,
+          "whitened_isotropic_r2": 0.39044045962640117,
+          "whitened_metric_r2": 0.4143094470713375
+        },
+        {
+          "lambda": 1.0,
+          "alpha": 0.25,
+          "ridge_isotropic_r2": 0.39044045962640106,
+          "ridge_metric_r2": 0.41430944707133743,
+          "whitened_isotropic_r2": 0.3903845718203499,
+          "whitened_metric_r2": 0.4148064373782097
+        },
+        {
+          "lambda": 1.0,
+          "alpha": 0.5,
+          "ridge_isotropic_r2": 0.39044045962640106,
+          "ridge_metric_r2": 0.41430944707133743,
+          "whitened_isotropic_r2": 0.39025505300754315,
+          "whitened_metric_r2": 0.4152508743551828
+        },
+        {
+          "lambda": 1.0,
+          "alpha": 0.75,
+          "ridge_isotropic_r2": 0.39044045962640106,
+          "ridge_metric_r2": 0.41430944707133743,
+          "whitened_isotropic_r2": 0.3900483528707801,
+          "whitened_metric_r2": 0.41564208877983166
+        },
+        {
+          "lambda": 1.0,
+          "alpha": 1.0,
+          "ridge_isotropic_r2": 0.39044045962640106,
+          "ridge_metric_r2": 0.41430944707133743,
+          "whitened_isotropic_r2": 0.38976094641349074,
+          "whitened_metric_r2": 0.4159784928778542
+        }
+      ],
+      "best_ridge_lambda": 1e-05,
+      "best_whitened_lambda": 1e-05,
+      "best_whitened_alpha": 0.0
+    }
+  }
+}
