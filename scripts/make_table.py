@@ -96,7 +96,8 @@ def format_pair(payload: dict) -> str:
         for label, test in (block.get("paired") or {}).items():
             lines.append(
                 f"Paired {label.replace('_vs_', ' vs ')}: "
-                f"{test['difference']:+d} items, exact McNemar p={test['p_value']:.3f}."
+                f"{test['difference']:+.4f} accuracy, exact McNemar "
+                f"p={test['p_value']:.3f}."
             )
         if block.get("paired"):
             lines.append("")
