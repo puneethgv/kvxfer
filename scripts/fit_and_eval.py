@@ -27,12 +27,31 @@ import argparse
 import json
 from pathlib import Path
 
-from kvxfer.experiment import ExperimentConfig, run_experiment, settings_from_sweep
+from kvxfer.experiment import (
+    ExperimentConfig,
+    evaluate_mappers,
+    run_experiment,
+    settings_from_sweep,
+)
+from kvxfer.geometry import load_geometry
+from kvxfer.mapstore import load_maps
+
+
+def _target_of(artifacts: Path) -> str:
+    """Read the target model id from a calibration manifest."""
+    return json.loads((artifacts / "manifest.json").read_text())["target"]
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--artifacts", required=True, help="directory from calibrate.py")
+    parser.add_argument(
+        "--maps",
+        default="",
+        help="a directory from scripts/fit_maps.py. Given one, this evaluates "
+        "those maps instead of refitting, so the statistics never have to be "
+        "resident alongside the models",
+    )
     parser.add_argument("--tasks", default="arc_easy,arc_challenge")
     parser.add_argument(
         "--ppl-documents",
@@ -121,7 +140,12 @@ def main() -> None:
     )
 
     art = Path(args.artifacts)
-    payload = run_experiment(art, config)
+    if args.maps:
+        mappers, metadata = load_maps(args.maps, load_geometry(_target_of(art)))
+        print(f"loaded {len(mappers)} fitted variants from {args.maps}")
+        payload = evaluate_mappers(mappers, metadata, config)
+    else:
+        payload = run_experiment(art, config)
 
     out_dir = Path(args.out) / art.parent.name / art.name
     out_dir.mkdir(parents=True, exist_ok=True)

@@ -44,9 +44,14 @@ class _EighCache:
     Different target layers frequently select overlapping source layers, and
     the eigendecomposition is by far the dominant cost of the solve, so reusing
     it across layers that chose the same subset matters more than it looks.
+
+    The cache is kept small on purpose. Each entry is a dense eigenbasis of the
+    design Gram -- 134 MB for a four-layer design on this family -- and
+    consecutive target layers are the ones that share a selection, so depth
+    beyond a couple of entries buys almost no hits for a lot of memory.
     """
 
-    def __init__(self, maxsize: int = 8) -> None:
+    def __init__(self, maxsize: int = 2) -> None:
         self._store: dict[tuple, tuple[Tensor, Tensor]] = {}
         self._order: list[tuple] = []
         self._maxsize = maxsize

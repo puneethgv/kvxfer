@@ -41,6 +41,22 @@ from kvxfer.stats import GramStats
 # The two full-rank conditions, always run: the reference method and the
 # attention-aligned objective. Rank-constrained variants are added on request.
 VARIANTS = ("ridge", "whitened")
+KINDS = ("keys", "values")
+
+
+def variant_plan(config: "ExperimentConfig") -> dict[str, tuple[str, int]]:
+    """Which maps to fit: name -> (metric to use, rank budget).
+
+    The rank-constrained pair is deliberately isotropic-versus-aligned at the
+    *same* rank. That isolates what the metric contributes from what the
+    truncation contributes, which a comparison against the full-rank map would
+    confound.
+    """
+    plan = {"ridge": ("ridge", 0), "whitened": ("whitened", 0)}
+    if config.rank:
+        plan[f"rank{config.rank}_iso"] = ("ridge", config.rank)
+        plan[f"rank{config.rank}_aligned"] = ("whitened", config.rank)
+    return plan
 
 
 @dataclass
@@ -273,19 +289,22 @@ def _task_payload(outcome) -> dict:
     }
 
 
-def run_experiment(artifacts: str | Path, config: ExperimentConfig) -> dict:
-    """Fit both solvers from cached statistics and measure what they cost.
+def fit_mappers(
+    artifacts: str | Path, config: ExperimentConfig
+) -> tuple[dict[str, dict[str, dict[int, object]]], dict]:
+    """Fit every variant's maps from cached statistics.
 
-    Conditions compared: the target model's own prefill (the ceiling), a zeroed
-    cache (the floor), the source model standalone, and each solver's mapped
-    cache.
+    Holds no models beyond the one pass needed to build the attention metrics,
+    and no statistics beyond the cache kind being fitted. Kept separate from
+    evaluation because the two have disjoint working sets: overlapping them
+    made the peak their sum, which a 16 GB machine does not survive.
 
     Args:
         artifacts: directory written by ``scripts/calibrate.py``.
         config: the experiment definition.
 
     Returns:
-        The results payload, ready to serialise.
+        ``(maps, metadata)`` where maps is ``{variant: {kind: {layer: map}}}``.
     """
     art = Path(artifacts)
     manifest = json.loads((art / "manifest.json").read_text())
@@ -314,34 +333,23 @@ def run_experiment(artifacts: str | Path, config: ExperimentConfig) -> dict:
             "values": value_metric(target_model, target_geom).normalized(),
         },
     }
-    # The target model is not needed again until evaluation, and the fitting
-    # that follows wants the memory for statistics. Reloading it later costs a
-    # couple of seconds against weights already in the page cache.
-    del q_moments, probe, target_model
+
+    # The target model is not needed again here, and the fitting that follows
+    # wants the memory for statistics.
+    del q_moments, probe, target_model, tokenizer
     gc.collect()
 
-    # name -> (which metric to use, rank budget). The rank-constrained pair is
-    # deliberately isotropic-versus-aligned at the *same* rank: that isolates
-    # what the metric contributes from what the truncation contributes.
-    plan: dict[str, tuple[str, int]] = {"ridge": ("ridge", 0), "whitened": ("whitened", 0)}
-    if config.rank:
-        plan[f"rank{config.rank}_iso"] = ("ridge", config.rank)
-        plan[f"rank{config.rank}_aligned"] = ("whitened", config.rank)
-
-    mappers: dict[str, object] = {"floor": ZeroMapper(target_geom)}
-    diagnostics: dict[str, dict] = {}
-
-    # One cache kind at a time, released as soon as its maps are fitted. The
-    # four statistics files are 2.3 GB each for this pair, and holding all of
-    # them through an evaluation that also needs both models resident is what
-    # put a 16 GB machine into the out-of-memory killer. Nothing after fitting
-    # reads them: held-out scoring happens here, while they are still open.
+    plan = variant_plan(config)
+    maps: dict[str, dict[str, dict[int, object]]] = {name: {} for name in plan}
     selection: dict[str, dict[int, tuple[int, ...]]] = {}
-    fitted: dict[str, dict[str, tuple[dict, dict]]] = {name: {} for name in plan}
-    elapsed: dict[str, float] = dict.fromkeys(plan, 0.0)
+    diagnostics: dict[str, dict] = {name: {} for name in plan}
+    elapsed = dict.fromkeys(plan, 0.0)
     tokens = {}
 
-    for kind in ("keys", "values"):
+    # One cache kind at a time, released as soon as its maps exist. Nothing
+    # after this reads the statistics: held-out scoring happens here, while
+    # they are still open.
+    for kind in KINDS:
         fit_stats = GramStats.load(art / f"fit_{kind}.pt")
         val_stats = GramStats.load(art / f"val_{kind}.pt")
         tokens[kind] = (fit_stats.n_tokens, val_stats.n_tokens)
@@ -351,7 +359,7 @@ def run_experiment(artifacts: str | Path, config: ExperimentConfig) -> dict:
             f"{fit_stats.n_source_layers} candidate source layers"
         )
 
-        # Selected once per kind and shared, so the variants differ only in
+        # Selected once per kind and shared, so variants differ only in
         # objective and never in which predictors they were handed.
         selection[kind] = choose_layers(
             fit_stats,
@@ -363,19 +371,20 @@ def run_experiment(artifacts: str | Path, config: ExperimentConfig) -> dict:
             f"select/{kind[0].upper()}",
             config.selection,
         )
+        gc.collect()
 
         for name, (metric_name, rank) in plan.items():
             penalty = config.penalty(metric_name, kind)
             exponent = config.metric_exponent(kind)
-            aligned = metric_name == "whitened"
             described = f"lambda={penalty:.0e}"
-            if aligned and not rank:
+            if metric_name == "whitened" and not rank:
                 described += f", alpha={exponent:.2f}"
             if rank:
                 described += f", rank={rank}"
             print(f"\nfitting {name} on {kind} ({described})")
+
             started = time.time()
-            fitted[name][kind] = fit_all_layers(
+            layer_maps, layer_diag = fit_all_layers(
                 fit_stats,
                 val_stats,
                 target_geom,
@@ -387,45 +396,79 @@ def run_experiment(artifacts: str | Path, config: ExperimentConfig) -> dict:
                 rank=rank,
             )
             elapsed[name] += time.time() - started
+            maps[name][kind] = layer_maps
+            diagnostics[name][kind] = layer_diag
+            clear_design_cache()
+            gc.collect()
 
-        clear_design_cache()
         del fit_stats, val_stats
         gc.collect()
 
     for name, (metric_name, rank) in plan.items():
-        mappers[name] = FittedMapper(
-            fitted[name]["keys"][0], fitted[name]["values"][0], target_geom, label=name
-        )
         stored = sum(
             layer["stored_parameters"]
-            for kind in ("keys", "values")
-            for layer in fitted[name][kind][1].values()
+            for kind in KINDS
+            for layer in diagnostics[name][kind].values()
         )
-        diagnostics[name] = {
-            "lambda": {
-                kind: config.penalty(metric_name, kind) for kind in ("keys", "values")
-            },
-            "alpha": (
-                {kind: config.metric_exponent(kind) for kind in ("keys", "values")}
-                if metric_name == "whitened" and not rank
-                else None
-            ),
-            "rank": rank or None,
-            "stored_parameters": stored,
-            "keys": fitted[name]["keys"][1],
-            "values": fitted[name]["values"][1],
-            "fit_seconds": round(elapsed[name], 1),
+        diagnostics[name]["lambda"] = {
+            kind: config.penalty(metric_name, kind) for kind in KINDS
         }
+        diagnostics[name]["alpha"] = (
+            {kind: config.metric_exponent(kind) for kind in KINDS}
+            if metric_name == "whitened" and not rank
+            else None
+        )
+        diagnostics[name]["rank"] = rank or None
+        diagnostics[name]["stored_parameters"] = stored
+        diagnostics[name]["fit_seconds"] = round(elapsed[name], 1)
         print(
             f"  {name}: fitted in {elapsed[name]:.1f}s, "
             f"{stored / 1e6:.1f}M stored parameters"
         )
 
-    del fitted
-    gc.collect()
+    metadata = {
+        "source": source_id,
+        "target": target_id,
+        "settings": asdict(config),
+        "n_fit_tokens": tokens["keys"][0],
+        "n_val_tokens": tokens["keys"][1],
+        "layer_selection": {
+            kind: {str(layer): list(v) for layer, v in sel.items()}
+            for kind, sel in selection.items()
+        },
+        "diagnostics": diagnostics,
+    }
+    return maps, metadata
 
+
+def evaluate_mappers(
+    mappers: dict[str, object],
+    metadata: dict,
+    config: ExperimentConfig,
+) -> dict:
+    """Measure what a set of fitted mappers costs downstream.
+
+    Conditions compared: the target model's own prefill (the ceiling), a zeroed
+    cache (the floor), the source model standalone, and each fitted mapper.
+
+    Args:
+        mappers: fitted mappers by name; the floor is added here.
+        metadata: what :func:`fit_mappers` returned alongside the maps.
+        config: the experiment definition.
+
+    Returns:
+        The results payload, ready to serialise.
+    """
+    source_id, target_id = metadata["source"], metadata["target"]
+    target_geom = load_geometry(target_id)
+    dtype = getattr(torch, config.dtype)
+
+    tokenizer = load_tokenizer(source_id)
     target_model = load_model(target_id, dtype=dtype)
     source_model = load_model(source_id, dtype=dtype)
+
+    conditions: dict[str, object] = {"floor": ZeroMapper(target_geom)}
+    conditions.update(mappers)
 
     # Perplexity first: it yields one measurement per token rather than one per
     # item, which is the difference between resolving a mapper's effect and not.
@@ -445,14 +488,14 @@ def run_experiment(artifacts: str | Path, config: ExperimentConfig) -> dict:
         config.ppl_prefix,
         target_model=target_model,
         source_model=source_model,
-        mappers=mappers,
+        mappers=conditions,
         dtype=dtype,
         batch_size=config.ppl_batch_size,
     )
     print()
     for name, res in ppl.items():
         print(
-            f"    {name:10s} ppl={res.perplexity:8.4f}  "
+            f"    {name:16s} ppl={res.perplexity:8.4f}  "
             f"nll={res.mean_nll:.5f} +/- {res.stderr():.5f}"
         )
     for baseline, contender in _comparisons(ppl):
@@ -471,14 +514,14 @@ def run_experiment(artifacts: str | Path, config: ExperimentConfig) -> dict:
             target_model,
             tokenizer,
             source_model=source_model,
-            mappers=mappers,
+            mappers=conditions,
             dtype=dtype,
         )
         results[task_name] = outcome
 
         print(f"\n  {task_name}:")
         for name, cond in outcome.conditions.items():
-            line = f"    {name:10s} acc={cond.accuracy:.4f} +/- {cond.stderr():.4f}"
+            line = f"    {name:16s} acc={cond.accuracy:.4f} +/- {cond.stderr():.4f}"
             if name not in ("target", "floor", "source"):
                 line += (
                     f"  retention={outcome.retention(name):.1%}"
@@ -495,27 +538,37 @@ def run_experiment(artifacts: str | Path, config: ExperimentConfig) -> dict:
                 f"{outcome.paired_test(baseline, contender)}"
             )
 
-    return {
-        "source": source_id,
-        "target": target_id,
-        "settings": asdict(config),
-        "n_fit_tokens": tokens["keys"][0],
-        "n_val_tokens": tokens["keys"][1],
-        "perplexity": {
-            name: {
-                "perplexity": res.perplexity,
-                "mean_nll": res.mean_nll,
-                "stderr": res.stderr(),
-                "n_tokens": res.n_tokens,
-                "document_nll": res.document_nll,
-            }
-            for name, res in ppl.items()
-        },
-        "perplexity_paired": _paired_nll_payload(ppl),
-        "layer_selection": {
-            kind: {str(layer): list(v) for layer, v in sel.items()}
-            for kind, sel in selection.items()
-        },
-        "diagnostics": diagnostics,
-        "results": {task: _task_payload(outcome) for task, outcome in results.items()},
+    payload = dict(metadata)
+    payload["perplexity"] = {
+        name: {
+            "perplexity": res.perplexity,
+            "mean_nll": res.mean_nll,
+            "stderr": res.stderr(),
+            "n_tokens": res.n_tokens,
+            "document_nll": res.document_nll,
+        }
+        for name, res in ppl.items()
     }
+    payload["perplexity_paired"] = _paired_nll_payload(ppl)
+    payload["results"] = {
+        task: _task_payload(outcome) for task, outcome in results.items()
+    }
+    return payload
+
+
+def run_experiment(artifacts: str | Path, config: ExperimentConfig) -> dict:
+    """Fit and evaluate in one process.
+
+    Convenient where memory is not the binding constraint. On a machine where
+    it is, run ``scripts/fit_maps.py`` and ``scripts/fit_and_eval.py --maps``
+    instead, so the two working sets never coexist.
+    """
+    maps, metadata = fit_mappers(artifacts, config)
+    target_geom = load_geometry(metadata["target"])
+    mappers = {
+        name: FittedMapper(by_kind["keys"], by_kind["values"], target_geom, label=name)
+        for name, by_kind in maps.items()
+    }
+    del maps
+    gc.collect()
+    return evaluate_mappers(mappers, metadata, config)
