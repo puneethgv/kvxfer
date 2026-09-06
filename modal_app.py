@@ -13,10 +13,16 @@ should happen once:
 * Statistics are written to the Volume, so every later ablation -- layer
   selection, penalty sweeps, both solvers -- is free.
 
+Always launch paid work with ``--detach``. Without it the app is ephemeral and
+tied to the local client, so anything that kills the client -- including a
+local out-of-memory kill that has nothing to do with the remote job -- stops a
+GPU run that was minutes from finishing. That happened here, and cost a second
+evaluation pass.
+
 Usage:
-    modal run modal_app.py --source Qwen/Qwen3-1.7B --target Qwen/Qwen3-4B
-    modal run modal_app.py::evaluate --artifacts qwen3-1.7b__to__qwen3-4b/web
-    modal volume get kvxfer-artifacts /artifacts/... ./artifacts/
+    modal run --detach modal_app.py --source Qwen/Qwen3-1.7B --target Qwen/Qwen3-4B
+    modal run --detach modal_app.py::evaluate --artifacts qwen3-1.7b__to__qwen3-4b/web
+    modal volume get kvxfer-artifacts qwen3-1.7b__to__qwen3-4b/web/results.json .
 """
 
 from __future__ import annotations
