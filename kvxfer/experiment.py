@@ -61,6 +61,8 @@ class ExperimentConfig:
     k: int = 4
     lam: float = 1e-3
     lambdas: dict[str, dict[str, float]] = field(default_factory=dict)
+    alpha: float = 1.0
+    alphas: dict[str, float] = field(default_factory=dict)
     n_candidates: int = 6
     selection: str = "topk"
     metric_offset: int = 2048
@@ -71,22 +73,33 @@ class ExperimentConfig:
         """Penalty for one solver on one cache kind, falling back to ``lam``."""
         return float(self.lambdas.get(variant, {}).get(kind, self.lam))
 
+    def metric_exponent(self, kind: str) -> float:
+        """How far the metric reshapes the penalty for one cache kind."""
+        return float(self.alphas.get(kind, self.alpha))
 
-def lambdas_from_sweep(path: str | Path) -> dict[str, dict[str, float]]:
-    """Read per-solver penalties from a ``scripts/sweep_lambda.py`` report.
+
+def settings_from_sweep(
+    path: str | Path,
+) -> tuple[dict[str, dict[str, float]], dict[str, float]]:
+    """Read the selected penalties and metric exponents from a sweep report.
 
     Args:
-        path: the sweep's JSON output.
+        path: JSON written by ``scripts/sweep_lambda.py``.
 
     Returns:
-        ``{variant: {kind: lambda}}`` for both solvers and both cache kinds.
+        ``({variant: {kind: lambda}}, {kind: alpha})``. Reports written before
+        alpha was swept carry no exponent, and those cache kinds are left out
+        so the config's default applies.
     """
     report = json.loads(Path(path).read_text())
-    chosen: dict[str, dict[str, float]] = {name: {} for name in VARIANTS}
+    lambdas: dict[str, dict[str, float]] = {name: {} for name in VARIANTS}
+    alphas: dict[str, float] = {}
     for kind, sweep in report["sweeps"].items():
-        chosen["ridge"][kind] = float(sweep["best_ridge_lambda"])
-        chosen["whitened"][kind] = float(sweep["best_whitened_lambda"])
-    return chosen
+        lambdas["ridge"][kind] = float(sweep["best_ridge_lambda"])
+        lambdas["whitened"][kind] = float(sweep["best_whitened_lambda"])
+        if "best_whitened_alpha" in sweep:
+            alphas[kind] = float(sweep["best_whitened_alpha"])
+    return lambdas, alphas
 
 
 def choose_layers(
@@ -127,11 +140,14 @@ def fit_all_layers(
     selection: dict[int, tuple[int, ...]],
     lam: float,
     label: str,
+    alpha: float = 1.0,
 ) -> tuple[dict, dict]:
     """Fit one map per target layer on a fixed layer selection.
 
     Args:
         metrics: the attention-induced metric, or ``None`` for isotropic ridge.
+        alpha: how far that metric reshapes the penalty; ignored when
+            ``metrics`` is ``None``.
 
     Returns:
         ``(maps, diagnostics)`` keyed by target layer.
@@ -152,6 +168,7 @@ def fit_all_layers(
                 target_geom.n_kv_heads,
                 target_geom.head_dim,
                 lam=lam,
+                alpha=alpha,
             )
         maps[layer] = fit
         diagnostics[layer] = {
@@ -298,10 +315,13 @@ def run_experiment(artifacts: str | Path, config: ExperimentConfig) -> dict:
 
     for name in VARIANTS:
         penalties = {kind: config.penalty(name, kind) for kind in ("keys", "values")}
-        print(
-            f"\nfitting {name} "
-            f"(lambda keys={penalties['keys']:.0e}, values={penalties['values']:.0e})"
+        exponents = {kind: config.metric_exponent(kind) for kind in ("keys", "values")}
+        described = ", ".join(
+            f"{kind} lambda={penalties[kind]:.0e}"
+            + (f" alpha={exponents[kind]:.2f}" if name == "whitened" else "")
+            for kind in ("keys", "values")
         )
+        print(f"\nfitting {name} ({described})")
         started = time.time()
         fitted = {}
         for kind in ("keys", "values"):
@@ -313,6 +333,7 @@ def run_experiment(artifacts: str | Path, config: ExperimentConfig) -> dict:
                 selection[kind],
                 penalties[kind],
                 f"{name}/{kind[0].upper()}",
+                alpha=exponents[kind],
             )
         clear_design_cache()
         mappers[name] = FittedMapper(
@@ -320,6 +341,7 @@ def run_experiment(artifacts: str | Path, config: ExperimentConfig) -> dict:
         )
         diagnostics[name] = {
             "lambda": penalties,
+            "alpha": exponents if name == "whitened" else None,
             "keys": fitted["keys"][1],
             "values": fitted["values"][1],
             "fit_seconds": round(time.time() - started, 1),

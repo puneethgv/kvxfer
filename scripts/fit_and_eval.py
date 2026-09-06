@@ -27,7 +27,7 @@ import argparse
 import json
 from pathlib import Path
 
-from kvxfer.experiment import ExperimentConfig, lambdas_from_sweep, run_experiment
+from kvxfer.experiment import ExperimentConfig, run_experiment, settings_from_sweep
 
 
 def main() -> None:
@@ -62,8 +62,16 @@ def main() -> None:
     parser.add_argument(
         "--lambdas",
         default="",
-        help="a sweep_lambda.py report; gives each solver the penalty chosen "
-        "on its own held-out objective rather than a shared guess",
+        help="a sweep_lambda.py report; gives each solver the penalty and "
+        "metric exponent chosen on its own held-out objective rather than a "
+        "shared guess",
+    )
+    parser.add_argument(
+        "--alpha",
+        type=float,
+        default=1.0,
+        help="how far the attention metric reshapes the penalty, for any cache "
+        "kind the --lambdas report does not cover; 0 is plain ridge",
     )
     parser.add_argument("--n-candidates", type=int, default=6)
     parser.add_argument(
@@ -79,9 +87,9 @@ def main() -> None:
     parser.add_argument("--out", default="results")
     args = parser.parse_args()
 
-    lambdas = lambdas_from_sweep(args.lambdas) if args.lambdas else {}
+    lambdas, alphas = settings_from_sweep(args.lambdas) if args.lambdas else ({}, {})
     if lambdas:
-        print(f"penalties from {args.lambdas}: {lambdas}")
+        print(f"settings from {args.lambdas}: lambdas={lambdas} alphas={alphas}")
 
     config = ExperimentConfig(
         tasks=tuple(args.tasks.split(",")),
@@ -94,6 +102,8 @@ def main() -> None:
         k=args.k,
         lam=args.lam,
         lambdas=lambdas,
+        alpha=args.alpha,
+        alphas=alphas,
         n_candidates=args.n_candidates,
         selection=args.selection,
         metric_offset=args.metric_offset,

@@ -1,13 +1,23 @@
-"""Sweep the ridge penalty for both solvers, scoring each on its own objective.
+"""Sweep the penalty for both solvers, scoring each on its own objective.
 
 The two solvers optimize different things, so tuning them against a single
 criterion would hand the comparison to whichever one that criterion favours.
 Isotropic ridge is selected on held-out R2; the attention-aligned solver is
 selected on held-out metric-weighted R2. Each is then evaluated at its own best
-penalty.
+setting.
 
-This costs no GPU time: every fit and every score comes from cached statistics,
-which is the point of accumulating sufficient statistics in the first place.
+The attention-aligned solver has two knobs, not one. ``lambda`` sets how much
+regularization there is; ``alpha`` sets how much the attention metric is
+allowed to redistribute it, through a penalty of ``lambda / L_j**alpha``. At
+alpha=0 the solver is identically plain ridge, so the sweep contains its own
+baseline and the comparison cannot be won by a tuning asymmetry. Sweeping alpha
+matters because the two ends genuinely disagree: alpha=1 fits its own objective
+better in sample while generalizing worse, since it regularizes least exactly
+where the design Gram is worst conditioned.
+
+This costs no GPU time beyond collecting the metrics: every fit and every score
+comes from cached statistics, which is the point of accumulating sufficient
+statistics in the first place.
 
 Example:
     python scripts/sweep_lambda.py \\
@@ -46,6 +56,11 @@ def main() -> None:
         help="penalties to try, relative to the design scale",
     )
     parser.add_argument(
+        "--alphas",
+        default="0,0.25,0.5,0.75,1.0",
+        help="how far the metric may reshape the penalty; 0 is plain ridge",
+    )
+    parser.add_argument(
         "--layers", default="", help="comma-separated target layers; default is a spread"
     )
     parser.add_argument("--floor", type=float, default=1e-6)
@@ -55,6 +70,7 @@ def main() -> None:
     art = Path(args.artifacts)
     geom = load_geometry(args.target)
     lambdas = [float(v) for v in args.lambdas.split(",")]
+    alphas = [float(v) for v in args.alphas.split(",")]
 
     stats = {
         f"{split}_{kind}": GramStats.load(art / f"{split}_{kind}.pt")
@@ -86,67 +102,92 @@ def main() -> None:
     }
     del model
 
-    report: dict = {"target": args.target, "k": args.k, "layers": layers, "sweeps": {}}
+    report: dict = {
+        "target": args.target,
+        "k": args.k,
+        "layers": layers,
+        "alphas": alphas,
+        "sweeps": {},
+    }
 
     for kind in ("keys", "values"):
         fit_stats, val_stats = stats[f"fit_{kind}"], stats[f"val_{kind}"]
         print(f"\n=== {kind} ===")
-        header = f"{'lambda':>8} {'ridge iso R2':>14} {'whitened iso R2':>17}"
+        header = (
+            f"{'lambda':>8} {'alpha':>6} {'ridge iso R2':>14} {'whitened iso R2':>17}"
+        )
         if has_head_moments:
             header += f" {'ridge metR2':>13} {'whitened metR2':>16}"
         print(header)
 
+        mean = lambda xs: sum(xs) / len(xs) if xs else float("nan")
+
+        def score(fits: list) -> tuple[float, float]:
+            """Held-out isotropic and metric R2, averaged over probe layers."""
+            iso = mean([float(held_out_r2(val_stats, f).mean()) for f in fits])
+            met = (
+                mean([
+                    held_out_metric_r2(
+                        val_stats, f, metrics[kind], geom.n_kv_heads, geom.head_dim
+                    )
+                    for f in fits
+                ])
+                if has_head_moments
+                else float("nan")
+            )
+            return iso, met
+
         rows = []
         for lam in lambdas:
-            iso_r, iso_w, met_r, met_w = [], [], [], []
-            for layer in layers:
-                selected = select_top_k(fit_stats, val_stats, layer, k=args.k, lam=lam)
-                r = solve_ridge(fit_stats, selected, layer, lam=lam)
-                w = solve_whitened(
-                    fit_stats, selected, layer, metrics[kind],
-                    geom.n_kv_heads, geom.head_dim, lam=lam,
-                    eigenvalue_floor=args.floor,
-                )
-                iso_r.append(float(held_out_r2(val_stats, r).mean()))
-                iso_w.append(float(held_out_r2(val_stats, w).mean()))
-                if has_head_moments:
-                    met_r.append(
-                        held_out_metric_r2(
-                            val_stats, r, metrics[kind], geom.n_kv_heads, geom.head_dim
-                        )
-                    )
-                    met_w.append(
-                        held_out_metric_r2(
-                            val_stats, w, metrics[kind], geom.n_kv_heads, geom.head_dim
-                        )
-                    )
-            clear_design_cache()
-
-            mean = lambda xs: sum(xs) / len(xs) if xs else float("nan")
-            row = {
-                "lambda": lam,
-                "ridge_isotropic_r2": mean(iso_r),
-                "whitened_isotropic_r2": mean(iso_w),
-                "ridge_metric_r2": mean(met_r),
-                "whitened_metric_r2": mean(met_w),
+            # The selection is made once per penalty and reused across alpha,
+            # so that alpha is compared against a fixed set of predictors
+            # rather than being credited with a different layer choice.
+            selected = {
+                layer: select_top_k(fit_stats, val_stats, layer, k=args.k, lam=lam)
+                for layer in layers
             }
-            rows.append(row)
-            line = f"{lam:>8.0e} {row['ridge_isotropic_r2']:>14.4f} {row['whitened_isotropic_r2']:>17.4f}"
-            if has_head_moments:
-                line += f" {row['ridge_metric_r2']:>13.4f} {row['whitened_metric_r2']:>16.4f}"
-            print(line, flush=True)
+            iso_r, met_r = score(
+                [solve_ridge(fit_stats, selected[l], l, lam=lam) for l in layers]
+            )
+            for alpha in alphas:
+                iso_w, met_w = score([
+                    solve_whitened(
+                        fit_stats, selected[l], l, metrics[kind],
+                        geom.n_kv_heads, geom.head_dim, lam=lam,
+                        eigenvalue_floor=args.floor, alpha=alpha,
+                    )
+                    for l in layers
+                ])
+                row = {
+                    "lambda": lam,
+                    "alpha": alpha,
+                    "ridge_isotropic_r2": iso_r,
+                    "ridge_metric_r2": met_r,
+                    "whitened_isotropic_r2": iso_w,
+                    "whitened_metric_r2": met_w,
+                }
+                rows.append(row)
+                line = (
+                    f"{lam:>8.0e} {alpha:>6.2f} {iso_r:>14.4f} {iso_w:>17.4f}"
+                )
+                if has_head_moments:
+                    line += f" {met_r:>13.4f} {met_w:>16.4f}"
+                print(line, flush=True)
+            clear_design_cache()
 
         best_ridge = max(rows, key=lambda r: r["ridge_isotropic_r2"])
         key = "whitened_metric_r2" if has_head_moments else "whitened_isotropic_r2"
         best_whitened = max(rows, key=lambda r: r[key])
         print(
-            f"  best ridge lambda={best_ridge['lambda']:.0e} (isotropic R2)"
-            f"  |  best whitened lambda={best_whitened['lambda']:.0e} ({key})"
+            f"  best ridge lambda={best_ridge['lambda']:.0e} (isotropic R2)  |  "
+            f"best whitened lambda={best_whitened['lambda']:.0e} "
+            f"alpha={best_whitened['alpha']:.2f} ({key})"
         )
         report["sweeps"][kind] = {
             "rows": rows,
             "best_ridge_lambda": best_ridge["lambda"],
             "best_whitened_lambda": best_whitened["lambda"],
+            "best_whitened_alpha": best_whitened["alpha"],
         }
 
     out_dir = Path(args.out)

@@ -103,6 +103,7 @@ def solve_whitened(
     lam: float = 1e-3,
     relative_lambda: bool = True,
     eigenvalue_floor: float = 1e-6,
+    alpha: float = 1.0,
 ) -> LinearMap:
     """Fit one target layer's map under an attention-induced metric.
 
@@ -121,6 +122,16 @@ def solve_whitened(
             near-zero weight, and without a floor their effective penalty
             diverges, which is numerically ugly for no benefit -- the fit in
             those directions is irrelevant either way.
+        alpha: how far the metric is allowed to reshape the penalty, via
+            ``lambda / L_j**alpha``. ``0`` reproduces plain ridge exactly for
+            any metric; ``1`` is the objective in the module docstring. It is
+            exposed because the two ends turn out to disagree in practice:
+            ``alpha=1`` fits its own objective better in sample yet
+            generalizes worse, since dividing by ``L_j`` regularizes *least*
+            in the directions attention cares most about, and on a design Gram
+            with a condition number around 1e11 those are the directions that
+            most need the regularization. Treating it as a tunable, selected
+            out of sample like any other, is the honest way to report that.
 
     Returns:
         The fitted :class:`LinearMap`. Its ``r2`` field remains the *isotropic*
@@ -152,9 +163,11 @@ def solve_whitened(
     rotated_xty = xty_c @ basis                      # (D, kv_dim)
     projected = design_basis.T @ rotated_xty         # (D, kv_dim)
 
-    # Per-coordinate ridge: penalty lambda / L_j, applied in the design's
-    # eigenbasis where the solve is a division.
-    penalties = lam_abs / evals                      # (kv_dim,)
+    # Per-coordinate ridge: penalty lambda / L_j**alpha, applied in the
+    # design's eigenbasis where the solve is a division. At alpha=0 the
+    # penalty is constant across coordinates, the two rotations cancel, and
+    # this reduces to the isotropic solve identically -- see the tests.
+    penalties = lam_abs / evals.pow(alpha)           # (kv_dim,)
     denom = design_evals.unsqueeze(1) + penalties.unsqueeze(0)   # (D, kv_dim)
     weight_rotated = design_basis @ (projected / denom)
 

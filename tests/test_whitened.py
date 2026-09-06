@@ -344,3 +344,56 @@ def test_whitened_wins_on_its_own_objective():
         f"whitened should win on the metric it optimizes: "
         f"{whitened_metric:.5f} vs {plain_metric:.5f}"
     )
+
+
+def _anisotropic_metrics(seed: int = 3) -> HeadMetrics:
+    """A strongly anisotropic metric, so alpha has something to act on."""
+    torch.manual_seed(seed)
+    a = torch.randn(N_TGT_LAYERS, N_KV_HEADS, HEAD_DIM, HEAD_DIM, dtype=torch.float64)
+    return HeadMetrics(a @ a.transpose(-1, -2) / HEAD_DIM, "keys").normalized()
+
+
+def test_alpha_zero_reduces_to_plain_ridge_for_any_metric():
+    """At alpha=0 the metric must drop out entirely, however anisotropic it is.
+
+    This is a stronger control than the identity-metric test: it pins that the
+    metric enters *only* through the penalty exponent, so a measured difference
+    between the objectives cannot come from the rotation machinery.
+    """
+    stats = _stats()
+    layers = tuple(range(N_SRC_LAYERS))
+    metrics = _anisotropic_metrics()
+
+    plain = solve_ridge(stats, layers, 0, lam=1e-2)
+    flat = solve_whitened(
+        stats, layers, 0, metrics, N_KV_HEADS, HEAD_DIM, lam=1e-2, alpha=0.0
+    )
+
+    assert torch.allclose(plain.weight, flat.weight, atol=1e-6), (
+        f"max weight difference {(plain.weight - flat.weight).abs().max():.2e}"
+    )
+    assert torch.allclose(plain.bias, flat.bias, atol=1e-6)
+
+
+def test_alpha_interpolates_between_the_two_objectives():
+    """Increasing alpha must move the fit monotonically away from ridge.
+
+    Anything else would mean alpha is not the knob it claims to be, and tuning
+    it out of sample would be tuning noise.
+    """
+    stats = _stats()
+    layers = tuple(range(N_SRC_LAYERS))
+    metrics = _anisotropic_metrics()
+
+    plain = solve_ridge(stats, layers, 0, lam=1e-2)
+    distances = []
+    for alpha in (0.0, 0.25, 0.5, 0.75, 1.0):
+        fit = solve_whitened(
+            stats, layers, 0, metrics, N_KV_HEADS, HEAD_DIM, lam=1e-2, alpha=alpha
+        )
+        distances.append(float((fit.weight - plain.weight).norm()))
+
+    assert distances[0] == pytest.approx(0.0, abs=1e-6)
+    assert all(
+        b > a for a, b in zip(distances, distances[1:])
+    ), f"not monotone in alpha: {distances}"
