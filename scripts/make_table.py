@@ -12,6 +12,55 @@ import json
 from pathlib import Path
 
 
+def format_perplexity(payload: dict) -> str:
+    """The primary metric, with the paired tests that make it decisive.
+
+    Perplexity leads because it yields a measurement per token rather than per
+    item. On these pairs the multiple-choice tasks leave so little headroom
+    between the mapped cache and the target's own prefill that per-item noise
+    swamps the effect being measured; per-document negative log likelihood does
+    not have that problem.
+    """
+    ppl = payload.get("perplexity")
+    if not ppl:
+        return ""
+
+    lines = [
+        "**Prefix-conditioned perplexity** (primary metric)",
+        "",
+        "| condition | perplexity | mean NLL | stored params |",
+        "| --- | --- | --- | --- |",
+    ]
+    diagnostics = payload.get("diagnostics", {})
+    for name, result in ppl.items():
+        stored = diagnostics.get(name, {}).get("stored_parameters")
+        size = "—" if stored is None else f"{stored / 1e6:.1f}M"
+        lines.append(
+            f"| {name} | {result['perplexity']:.4f} | "
+            f"{result['mean_nll']:.5f} ± {result['stderr']:.5f} | {size} |"
+        )
+    lines.append("")
+
+    paired = payload.get("perplexity_paired") or {}
+    if paired:
+        lines += [
+            "Paired by document, so the comparison is not read off "
+            "overlapping per-condition error bars:",
+            "",
+            "| comparison | mean NLL difference | t | documents improved |",
+            "| --- | --- | --- | --- |",
+        ]
+        for label, test in paired.items():
+            lines.append(
+                f"| {label.replace('_vs_', ' vs ')} | "
+                f"{test['mean_difference']:+.5f} ± {test['stderr']:.5f} | "
+                f"{test['t_statistic']:+.2f} | "
+                f"{test['n_better']}/{test['n_documents']} |"
+            )
+        lines.append("")
+    return "\n".join(lines)
+
+
 def format_pair(payload: dict) -> str:
     """One pair's results as a markdown section."""
     source = payload["source"].split("/")[-1]
@@ -44,6 +93,14 @@ def format_pair(payload: dict) -> str:
             lines.append(f"| {name} | {accuracy} | {retention} | {normalized} |")
         lines.append("")
 
+        for label, test in (block.get("paired") or {}).items():
+            lines.append(
+                f"Paired {label.replace('_vs_', ' vs ')}: "
+                f"{test['difference']:+d} items, exact McNemar p={test['p_value']:.3f}."
+            )
+        if block.get("paired"):
+            lines.append("")
+
     return "\n".join(lines)
 
 
@@ -61,6 +118,13 @@ def summarize_r2(payload: dict) -> str:
         lines.append(
             f"| {variant} | {sum(keys) / len(keys):.4f} | {sum(values) / len(values):.4f} |"
         )
+    lines += [
+        "",
+        "Read this against the perplexity table rather than on its own. The "
+        "reference work reports calibration R² anti-correlating with retention "
+        "(r = -0.20), so a variant leading here is not thereby the better "
+        "mapper -- that is the claim these runs are set up to check.",
+    ]
     lines.append("")
     return "\n".join(lines)
 
@@ -79,6 +143,7 @@ def main() -> None:
     for path in files:
         payload = json.loads(path.read_text())
         sections.append(format_pair(payload))
+        sections.append(format_perplexity(payload))
         sections.append(summarize_r2(payload))
 
     Path(args.out).write_text("\n".join(sections))
