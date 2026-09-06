@@ -110,7 +110,12 @@ def calibrate(
     from kvxfer.geometry import load_geometry
     from kvxfer.harvest import harvest, harvest_both
     from kvxfer.models import load_model, load_tokenizer
-    from kvxfer.planning import accumulator_bytes, choose_harvest_strategy
+    from kvxfer.planning import (
+        accumulator_bytes,
+        choose_harvest_strategy,
+        report_headroom,
+        working_set_bytes,
+    )
 
     weights = {
         part.split("=")[0]: float(part.split("=")[1]) for part in mixture.split(",")
@@ -157,11 +162,13 @@ def calibrate(
         "val": CalibrationSet(corpus.input_ids[fit_sequences:], corpus.domains[fit_sequences:]),
     }
 
+    working = working_set_bytes(source_geom, target_geom, batch_size, seq_len)
     use_single = choose_harvest_strategy(
-        passes, projected, source_model, target_model
+        passes, projected, source_model, target_model, working_set=working
     )
     manifest["passes"] = "single" if use_single else "split"
     print(f"harvest strategy: {manifest['passes']}")
+    report_headroom(projected, working, split=not use_single)
 
     started = time.time()
     for split, subset in splits.items():
@@ -264,6 +271,7 @@ def main(
     target: str = "Qwen/Qwen3-4B",
     layer_stride: int = 2,
     passes: str = "split",
+    batch_size: int = 2,
     tasks: str = "arc_easy,arc_challenge",
     limit: int = 300,
     lam: float = 1e-3,
@@ -276,10 +284,19 @@ def main(
     24 GB. Stride 2 halves the pool to 14 candidate layers, peaks around
     17 GB, and matches the candidate pool the local 0.6B-to-1.7B run used, so
     top-k selection stays comparable across pairs.
+
+    ``batch_size`` defaults to 2 for the same reason. Every harvested batch is
+    converted to float32 content for keys and values across every layer of
+    both models, which at batch 4 is about 3.2 GB for this pair against the
+    10.5 GB left free once the weights are resident.
     """
     fetch_weights.remote([source, target])
     manifest = calibrate.remote(
-        source=source, target=target, layer_stride=layer_stride, passes=passes
+        source=source,
+        target=target,
+        layer_stride=layer_stride,
+        passes=passes,
+        batch_size=batch_size,
     )
     print(f"calibration finished in {manifest['total_seconds']}s")
 

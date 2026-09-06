@@ -25,7 +25,12 @@ from kvxfer.data import build_calibration
 from kvxfer.geometry import load_geometry
 from kvxfer.harvest import harvest, harvest_both
 from kvxfer.models import load_model, load_tokenizer
-from kvxfer.planning import accumulator_bytes, choose_harvest_strategy
+from kvxfer.planning import (
+    accumulator_bytes,
+    choose_harvest_strategy,
+    report_headroom,
+    working_set_bytes,
+)
 
 
 def pair_slug(source: str, target: str) -> str:
@@ -131,11 +136,15 @@ def main() -> None:
         "splits": {},
     }
 
+    working = working_set_bytes(
+        source_geom, target_geom, args.batch_size, args.seq_len
+    )
     use_single = choose_harvest_strategy(
-        args.passes, projected, source_model, target_model
+        args.passes, projected, source_model, target_model, working_set=working
     )
     manifest["passes"] = "single" if use_single else "split"
     print(f"harvest strategy: {manifest['passes']}")
+    report_headroom(projected, working, split=not use_single)
 
     started = time.time()
     for split, corpus_split in splits.items():

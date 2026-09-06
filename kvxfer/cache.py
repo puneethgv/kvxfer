@@ -61,9 +61,20 @@ class ContentKV:
 
 @torch.no_grad()
 def prefill(model: torch.nn.Module, input_ids: Tensor) -> DynamicCache:
-    """Run a forward pass and return the resulting KV cache."""
+    """Run a forward pass and return the resulting KV cache.
+
+    Runs the base transformer rather than the causal-LM wrapper, because every
+    caller wants the cache and none reads the logits. That distinction is not
+    cosmetic at prefill widths: Qwen3's vocabulary is 151,936, so a batch of 4
+    at 1024 tokens materializes about 1.2 GB of logits per model in bfloat16,
+    more if they are upcast -- purely to be discarded. Dropping them is what
+    lets a 1.7B-to-4B harvest fit on a 22 GiB L4.
+    """
     device = next(model.parameters()).device
-    out = model(input_ids=input_ids.to(device), use_cache=True)
+    # ``.model`` is the decoder stack under a ``*ForCausalLM``. Fall back to
+    # the wrapper for anything that does not follow that convention.
+    trunk = getattr(model, "model", model)
+    out = trunk(input_ids=input_ids.to(device), use_cache=True)
     return out.past_key_values
 
 
