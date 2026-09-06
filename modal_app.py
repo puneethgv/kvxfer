@@ -31,10 +31,16 @@ artifact_volume = modal.Volume.from_name("kvxfer-artifacts", create_if_missing=T
 
 image = (
     modal.Image.debian_slim(python_version="3.12")
+    # Pinned, not floored. The cache path builds a DynamicCache through the
+    # transformers 5 constructor (``ddp_cache_data``) and reads layers as
+    # ``cache.layers[i].keys``; a range of ">=4.51" resolves happily to a 4.x
+    # release where neither exists, and the failure would land partway into a
+    # paid GPU run. These are the versions the local results were produced on,
+    # so remote numbers stay comparable with them.
     .pip_install(
-        "torch>=2.4",
-        "transformers>=4.51",
-        "datasets>=2.20",
+        "torch==2.14.0",
+        "transformers==5.16.1",
+        "datasets==5.0.1",
         "numpy>=1.26",
         "hf_transfer>=0.1",
     )
@@ -253,14 +259,42 @@ def evaluate(
 
 
 @app.local_entrypoint()
-def main(source: str = "Qwen/Qwen3-1.7B", target: str = "Qwen/Qwen3-4B") -> None:
-    """Fetch weights once, calibrate the pair, then evaluate it."""
+def main(
+    source: str = "Qwen/Qwen3-1.7B",
+    target: str = "Qwen/Qwen3-4B",
+    layer_stride: int = 2,
+    passes: str = "split",
+    tasks: str = "arc_easy,arc_challenge",
+    limit: int = 300,
+    lam: float = 1e-3,
+) -> None:
+    """Fetch weights once, calibrate the pair, then evaluate it.
+
+    ``layer_stride`` defaults to 2 rather than 1 deliberately. At stride 1 a
+    1.7B-to-4B design is 28,672 wide, which is 7.5 GB per accumulator; even
+    sweeping the cache kinds separately that peaks near 22 GB against an L4's
+    24 GB. Stride 2 halves the pool to 14 candidate layers, peaks around
+    17 GB, and matches the candidate pool the local 0.6B-to-1.7B run used, so
+    top-k selection stays comparable across pairs.
+    """
     fetch_weights.remote([source, target])
-    manifest = calibrate.remote(source=source, target=target)
+    manifest = calibrate.remote(
+        source=source, target=target, layer_stride=layer_stride, passes=passes
+    )
     print(f"calibration finished in {manifest['total_seconds']}s")
 
     slug = f"{source.split('/')[-1].lower()}__to__{target.split('/')[-1].lower()}"
     domain = "-".join(sorted(manifest["mixture"]))
-    payload = evaluate.remote(artifacts=f"{slug}/{domain}")
+    payload = evaluate.remote(
+        artifacts=f"{slug}/{domain}", tasks=tasks, limit=limit, lam=lam
+    )
+
+    print("\nprefix-conditioned perplexity:")
     for name, result in payload["perplexity"].items():
-        print(f"  {name:10s} ppl={result['perplexity']:.4f}")
+        print(f"  {name:16s} ppl={result['perplexity']:.4f}")
+    for task, block in payload["results"].items():
+        print(f"\n{task}:")
+        for name, cond in block["conditions"].items():
+            retention = block["retention"].get(name)
+            suffix = "" if retention is None else f"  retention={retention:.1%}"
+            print(f"  {name:16s} acc={cond['accuracy']:.4f}{suffix}")
