@@ -149,15 +149,24 @@ def main() -> None:
             iso_r, met_r = score(
                 [solve_ridge(fit_stats, selected[l], l, lam=lam) for l in layers]
             )
-            for alpha in alphas:
-                iso_w, met_w = score([
-                    solve_whitened(
-                        fit_stats, selected[l], l, metrics[kind],
-                        geom.n_kv_heads, geom.head_dim, lam=lam,
-                        eigenvalue_floor=args.floor, alpha=alpha,
+            # Layer outer, alpha inner. The whitened solve is dominated by one
+            # eigendecomposition of the design Gram, which depends on the layer
+            # and not on alpha, so visiting alphas together reuses it. The other
+            # order recomputes it for every alpha -- 5x the decompositions, and
+            # they are the whole cost.
+            by_alpha: dict[float, list] = {alpha: [] for alpha in alphas}
+            for layer in layers:
+                for alpha in alphas:
+                    by_alpha[alpha].append(
+                        solve_whitened(
+                            fit_stats, selected[layer], layer, metrics[kind],
+                            geom.n_kv_heads, geom.head_dim, lam=lam,
+                            eigenvalue_floor=args.floor, alpha=alpha,
+                        )
                     )
-                    for l in layers
-                ])
+
+            for alpha in alphas:
+                iso_w, met_w = score(by_alpha[alpha])
                 row = {
                     "lambda": lam,
                     "alpha": alpha,
