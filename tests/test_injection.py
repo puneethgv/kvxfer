@@ -272,3 +272,47 @@ def test_cache_template_is_reusable(model, ids):
 
     standalone = score_continuation(model, full_ids, n_context, cache=None)
     assert abs(scores[0] - standalone.total_logprob) < 1e-2
+
+
+def test_injection_gate_passes_on_a_supported_model(model, tokenizer):
+    """The per-pair gate must agree with the unit-test version of gate 1.
+
+    The gate exists because this check was only ever run in tests, against one
+    family. A Mistral pair was calibrated, trained and evaluated on rented
+    hardware before anyone noticed its target model scored at chance through
+    its own cache -- it uses sliding-window attention, which this cache path
+    does not implement.
+    """
+    from kvxfer.eval.gates import check_injection
+
+    delta = check_injection(model, tokenizer, dtype=torch.float32)
+    assert delta < 1e-2, f"gate reported {delta:.4f} nats on a supported model"
+
+
+def test_injection_gate_rejects_a_model_that_reads_caches_differently(model, tokenizer):
+    """A model that ignores its injected cache must fail the gate loudly.
+
+    Simulated by a wrapper that drops the cache, which is the observable
+    behaviour of an unsupported attention layout: the scores simply stop
+    matching, with nothing raising on its own.
+    """
+    from kvxfer.eval.gates import InjectionGateError, check_injection
+
+    class IgnoresCache(torch.nn.Module):
+        def __init__(self, inner):
+            super().__init__()
+            self.inner = inner
+            self.config = inner.config
+
+        def __getattr__(self, name):
+            try:
+                return super().__getattr__(name)
+            except AttributeError:
+                return getattr(self.inner, name)
+
+        def forward(self, *args, **kwargs):
+            kwargs.pop("past_key_values", None)
+            return self.inner(*args, **kwargs)
+
+    with pytest.raises(InjectionGateError, match="differently through its own"):
+        check_injection(IgnoresCache(model), tokenizer, dtype=torch.float32)

@@ -20,6 +20,7 @@ from pathlib import Path
 import torch
 
 from kvxfer.data import build_calibration
+from kvxfer.eval.gates import check_injection
 from kvxfer.eval.ppl import evaluate_perplexity, paired_nll
 from kvxfer.eval.retention import evaluate_task
 from kvxfer.eval.tasks import load_task
@@ -516,6 +517,13 @@ def evaluate_mappers(
         f"\nmodels resident in {config.dtype}: {resident / 1024**3:.1f} GB"
         + (f", {free / 1024**3:.1f} GB free" if free else "")
     )
+
+    # Before anything expensive: does the target read an injected cache the
+    # same way it reads one it built itself? Every retention figure divides by
+    # the target condition, so if this fails the results are meaningless rather
+    # than noisy, and it is cheaper to find out now than after the evaluation.
+    delta = check_injection(target_model, tokenizer, dtype=dtype)
+    print(f"injection gate: {delta:.2e} nats through the target's own cache")
 
     conditions: dict[str, object] = {"floor": ZeroMapper(target_geom)}
     conditions.update(mappers)
