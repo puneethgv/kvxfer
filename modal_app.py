@@ -54,7 +54,83 @@ image = (
     .add_local_python_source("kvxfer")
 )
 
+# vLLM brings its own torch and pins hard, so it gets its own image rather
+# than fighting the pinned one above. It is a measurement baseline here, not a
+# dependency of the method.
+vllm_image = (
+    modal.Image.debian_slim(python_version="3.12")
+    .pip_install("vllm==0.11.0", "hf_transfer>=0.1")
+    .env({"HF_HOME": CACHE_DIR, "HF_HUB_ENABLE_HF_TRANSFER": "1", "VLLM_USE_V1": "1"})
+)
+
 app = modal.App("kvxfer", image=image)
+
+
+@app.function(
+    gpu="L4",
+    image=vllm_image,
+    volumes={CACHE_DIR: weights_volume},
+    timeout=90 * 60,
+)
+def vllm_prefill(
+    model: str = "Qwen/Qwen3-4B",
+    lengths: str = "512,1024,2048,4096,8192",
+    repeats: int = 5,
+) -> dict:
+    """Time an optimized engine's prefill, as the baseline to quote against.
+
+    The speedup this project can claim is decided by how fast the thing being
+    replaced is. Timing against a slow prefill would inflate the result exactly
+    the way retention-against-target inflates the quality result, so the
+    baseline has to be the best prefill available rather than the most
+    convenient one.
+
+    Measured as time-to-first-token with a single sequence and one output
+    token, which is prefill plus one decode step. The decode step is a constant
+    of a few milliseconds and is reported so it can be subtracted.
+
+    Args:
+        model: model id, matching the transfer target being compared against.
+        lengths: comma-separated prompt lengths in tokens.
+        repeats: timed runs per length; the median is reported.
+
+    Returns:
+        Median milliseconds per length.
+    """
+    import time
+
+    from vllm import LLM, SamplingParams
+
+    llm = LLM(
+        model=model,
+        dtype="bfloat16",
+        gpu_memory_utilization=0.85,
+        enforce_eager=False,
+        max_model_len=16384,
+        disable_log_stats=True,
+    )
+    tokenizer = llm.get_tokenizer()
+    one_token = SamplingParams(max_tokens=1, temperature=0.0)
+
+    out = {"model": model, "engine": "vllm", "points": []}
+    for n_tokens in (int(v) for v in lengths.split(",")):
+        # A real token sequence, not a repeated id: prefix caching would
+        # otherwise short-circuit the very work being measured.
+        prompt_ids = list(range(1000, 1000 + n_tokens))
+        prompt = tokenizer.decode(prompt_ids)
+
+        llm.generate([prompt], one_token)  # warmup / compile
+        samples = []
+        for _ in range(repeats):
+            start = time.perf_counter()
+            llm.generate([prompt], one_token)
+            samples.append((time.perf_counter() - start) * 1000.0)
+        samples.sort()
+        median = samples[len(samples) // 2]
+        out["points"].append({"n_tokens": n_tokens, "prefill_ms": median})
+        print(f"  {n_tokens:>6} tok | vllm prefill+1 {median:8.1f} ms", flush=True)
+
+    return out
 
 
 @app.function(
