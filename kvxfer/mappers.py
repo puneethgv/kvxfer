@@ -89,6 +89,21 @@ class ZeroMapper(Mapper):
         )
 
 
+def design_rows(tensor: Tensor, layers: tuple[int, ...]) -> Tensor:
+    """Gather layers into ``(n_tokens, len(layers) * kv_dim)`` design rows.
+
+    Shared with the trained residual rather than duplicated. The feature order
+    here has to match the order the maps were fitted against, and a divergence
+    would not raise -- it would apply the map to correctly shaped, wrongly
+    ordered inputs and quietly produce a worse mapper.
+    """
+    picked = tensor[list(layers)]
+    n_layers, batch, n_kv, seq, head_dim = picked.shape
+    return picked.permute(1, 3, 0, 2, 4).reshape(
+        batch * seq, n_layers * n_kv * head_dim
+    )
+
+
 def _apply_on(fit: LinearMap, design: Tensor) -> Tensor:
     """Apply a fitted map to a design block, on the design's device and dtype.
 
@@ -155,14 +170,7 @@ class FittedMapper(Mapper):
     def name(self) -> str:
         return self.label
 
-    @staticmethod
-    def _design(tensor: Tensor, layers: tuple[int, ...]) -> Tensor:
-        """Gather layers into ``(n_tokens, len(layers) * kv_dim)`` design rows."""
-        picked = tensor[list(layers)]
-        n_layers, batch, n_kv, seq, head_dim = picked.shape
-        return picked.permute(1, 3, 0, 2, 4).reshape(
-            batch * seq, n_layers * n_kv * head_dim
-        )
+    _design = staticmethod(design_rows)
 
     def to(self, device: torch.device | str, dtype: torch.dtype | None = None) -> "FittedMapper":
         """Place every stored map on ``device``, once, in place.
