@@ -428,6 +428,7 @@ def latency(
     payload = {
         "source": metadata["source"],
         "target": metadata["target"],
+        "lengths_requested": [int(v) for v in lengths.split(",")],
         "gpu": torch.cuda.get_device_name(0) if torch.cuda.is_available() else "cpu",
         "dtype": dtype,
         "k": k,

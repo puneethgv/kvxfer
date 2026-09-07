@@ -105,11 +105,20 @@ def benchmark_lengths(
 ) -> list[LatencyPoint]:
     """Time re-prefill against map-and-inject across context lengths.
 
+    Each phase releases its tensors before the next begins. That is not tidiness:
+    holding the target cache, the source cache, both float32 content copies, the
+    template and the built cache at once comes to 18.9 GB at 8192 tokens for a
+    1.7B-to-4B pair, which does not fit a 22 GiB card alongside 10.7 GB of
+    weights. Staged, the same measurement peaks around 15 GB.
+
+    Lengths are attempted in order and a length that runs out of memory ends the
+    sweep rather than the run, so the shorter points already measured survive.
+
     Args:
         source_model: the model whose cache is being mapped from.
         target_model: the model whose cache is being produced.
         mapper: the fitted map under test.
-        lengths: context lengths in tokens.
+        lengths: context lengths in tokens, ascending.
         repeats: timed runs per measurement; the median is reported.
         dtype: cache dtype, matching how the models are served.
         vocab_size: sampling range for synthetic tokens; taken from the target
@@ -117,28 +126,56 @@ def benchmark_lengths(
         seed: token sampling seed.
 
     Returns:
-        One :class:`LatencyPoint` per length.
+        One :class:`LatencyPoint` per length that completed.
     """
     device = next(target_model.parameters()).device
     vocab = vocab_size or int(target_model.config.vocab_size)
     generator = torch.Generator(device="cpu").manual_seed(seed)
 
-    points = []
-    for n_tokens in lengths:
+    def release() -> None:
+        if device.type == "cuda":
+            torch.cuda.empty_cache()
+        elif device.type == "mps":
+            torch.mps.empty_cache()
+
+    points: list[LatencyPoint] = []
+    for n_tokens in sorted(lengths):
         ids = torch.randint(0, vocab, (1, n_tokens), generator=generator)
+        try:
+            target_ms, out = _time(lambda: prefill(target_model, ids), device, repeats)
+            del out
+            release()
 
-        target_ms, _ = _time(lambda: prefill(target_model, ids), device, repeats)
-        source_ms, source_cache = _time(lambda: prefill(source_model, ids), device, repeats)
+            source_ms, source_cache = _time(
+                lambda: prefill(source_model, ids), device, repeats
+            )
+            content = cache_to_content(source_cache, source_model)
+            del source_cache
+            release()
 
-        # Content conversion is part of mapping: the map lives in RoPE-free
-        # space, so stripping and restoring are not optional overhead to omit.
-        content = cache_to_content(source_cache, source_model)
-        map_ms, mapped = _time(lambda: mapper.map(content), device, repeats)
-        inject_ms, _ = _time(
-            lambda: CacheTemplate.from_content(mapped, target_model, dtype=dtype).build(),
-            device,
-            repeats,
-        )
+            # Content conversion is part of mapping: the map lives in RoPE-free
+            # space, so stripping and restoring are not overhead to omit.
+            map_ms, mapped = _time(lambda: mapper.map(content), device, repeats)
+            del content
+            release()
+
+            inject_ms, built = _time(
+                lambda: CacheTemplate.from_content(
+                    mapped, target_model, dtype=dtype
+                ).build(),
+                device,
+                repeats,
+            )
+            del mapped, built
+            release()
+        except torch.OutOfMemoryError:
+            print(
+                f"  {n_tokens:>6} tok | out of memory; stopping the sweep and "
+                f"keeping the {len(points)} shorter point(s)",
+                flush=True,
+            )
+            release()
+            break
 
         point = LatencyPoint(
             n_tokens=n_tokens,
@@ -149,9 +186,5 @@ def benchmark_lengths(
         )
         points.append(point)
         print(f"  {point}", flush=True)
-
-        del source_cache, content, mapped
-        if device.type == "cuda":
-            torch.cuda.empty_cache()
 
     return points
