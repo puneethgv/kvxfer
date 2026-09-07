@@ -1,0 +1,61 @@
+{
+  "source": "Qwen/Qwen3-1.7B",
+  "target": "Qwen/Qwen3-4B",
+  "lengths_requested": [
+    512,
+    1024,
+    2048,
+    4096,
+    8192
+  ],
+  "gpu": "NVIDIA L4",
+  "dtype": "bfloat16",
+  "k": 4,
+  "points": [
+    {
+      "n_tokens": 512,
+      "target_prefill_ms": 96.26221999997142,
+      "source_prefill_ms": 48.178652000046895,
+      "map_ms": 16.902254999990873,
+      "inject_ms": 6.373559000053319,
+      "warm_speedup": 4.135718733608571,
+      "cold_speedup": 1.3471826939389444
+    },
+    {
+      "n_tokens": 1024,
+      "target_prefill_ms": 209.4305660000373,
+      "source_prefill_ms": 82.45886800000335,
+      "map_ms": 32.80975200004832,
+      "inject_ms": 12.041095000085988,
+      "warm_speedup": 4.669489653103098,
+      "cold_speedup": 1.6450477954475888
+    },
+    {
+      "n_tokens": 2048,
+      "target_prefill_ms": 385.4338229999712,
+      "source_prefill_ms": 164.1905559999941,
+      "map_ms": 69.42126500007362,
+      "inject_ms": 23.05487399996764,
+      "warm_speedup": 4.167927285543347,
+      "cold_speedup": 1.5016900537092204
+    },
+    {
+      "n_tokens": 4096,
+      "target_prefill_ms": 884.6902440000122,
+      "source_prefill_ms": 369.55264100004115,
+      "map_ms": 158.78034799993657,
+      "inject_ms": 45.21967200003019,
+      "warm_speedup": 4.336716457185427,
+      "cold_speedup": 1.5424743082135226
+    },
+    {
+      "n_tokens": 8192,
+      "target_prefill_ms": 2027.119639000034,
+      "source_prefill_ms": 867.171305999932,
+      "map_ms": 329.3727330000138,
+      "inject_ms": 89.2134260000148,
+      "warm_speedup": 4.842777515249604,
+      "cold_speedup": 1.5765956598977213
+    }
+  ]
+}
