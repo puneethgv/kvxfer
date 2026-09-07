@@ -439,7 +439,10 @@ def fit(
         k=k,
         lam=lam,
         rank=rank,
-        dtype="float32",  # CPU: bfloat16 matmuls there are slow and emulated
+        # float32 on CPU, where bfloat16 matmuls are slow and often emulated.
+        # With a GPU attached for the aligned solver's metrics it costs only
+        # the one forward pass, and the solve is float64 on CPU either way.
+        dtype="float32",
         variants=tuple(v for v in variants.split(",") if v.strip()),
     )
     maps, metadata = fit_mappers(art, config)
@@ -696,6 +699,11 @@ def big(
     drove held-out R2 to -10.1 on Qwen2.5 and perplexity to six figures. It is
     a known failure, not something to pay to rediscover.
 
+    ``variants`` selects which closed-form maps to fit. Ask for
+    "ridge,whitened" to compare the reference method against the
+    attention-aligned one on this pair as well as against the trained
+    residual.
+
     ``steps`` defaults well below the Qwen3 run's 2000 because that run's loss
     was flat from roughly step 25; the extra steps bought nothing and here they
     would cost several dollars an hour more. Pass 0 to skip training entirely
@@ -711,7 +719,10 @@ def big(
     slug = f"{source.split('/')[-1].lower()}__to__{target.split('/')[-1].lower()}"
     artifacts = f"{slug}/" + "-".join(sorted(manifest["mixture"]))
 
-    fit.remote(artifacts=artifacts, variants="ridge")
+    # Fitting the aligned solver needs the target model for its metrics, so it
+    # cannot run on the cheap CPU container the isotropic fit uses.
+    fitter = fit.with_options(gpu=gpu) if "whitened" in variants else fit
+    fitter.remote(artifacts=artifacts, variants=variants)
 
     # steps=0 evaluates the closed form alone. Worth doing first on an
     # unfamiliar pair: training is only interesting where ridge fails, and
