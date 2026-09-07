@@ -698,7 +698,8 @@ def big(
 
     ``steps`` defaults well below the Qwen3 run's 2000 because that run's loss
     was flat from roughly step 25; the extra steps bought nothing and here they
-    would cost several dollars an hour more.
+    would cost several dollars an hour more. Pass 0 to skip training entirely
+    and measure the closed form on its own.
     """
     fetch_weights.remote([source, target])
     manifest = calibrate.with_options(gpu=gpu).remote(
@@ -711,9 +712,17 @@ def big(
     artifacts = f"{slug}/" + "-".join(sorted(manifest["mixture"]))
 
     fit.remote(artifacts=artifacts, variants="ridge")
-    train.with_options(gpu=gpu).remote(artifacts=artifacts, steps=steps)
+
+    # steps=0 evaluates the closed form alone. Worth doing first on an
+    # unfamiliar pair: training is only interesting where ridge fails, and
+    # finding that out costs a fraction of finding it out afterwards.
+    residual_dir = ""
+    if steps:
+        train.with_options(gpu=gpu).remote(artifacts=artifacts, steps=steps)
+        residual_dir = "residual"
+
     payload = evaluate.with_options(gpu=gpu).remote(
-        artifacts=artifacts, maps="maps", residual="residual",
+        artifacts=artifacts, maps="maps", residual=residual_dir,
     )
     for name, result in payload["perplexity"].items():
         print(f"  {name:10s} ppl={result['perplexity']:.4f}")
