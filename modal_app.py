@@ -366,6 +366,63 @@ def evaluate(
 
 
 @app.function(
+    cpu=8.0,
+    memory=32768,
+    volumes={CACHE_DIR: weights_volume, ARTIFACT_DIR: artifact_volume},
+    timeout=4 * 60 * 60,
+)
+def fit(
+    artifacts: str,
+    variants: str = "ridge",
+    k: int = 4,
+    lam: float = 1e-3,
+    rank: int = 0,
+    name: str = "maps",
+) -> dict:
+    """Fit maps once and store them beside the statistics.
+
+    Fitting is closed-form linear algebra over cached moments. It was being
+    redone inside every latency and evaluation run, which meant paying a GPU
+    to recompute maps that never change -- three latency reruns cost about
+    thirty minutes of L4 time producing byte-identical output.
+
+    This runs on CPU because a ridge-only fit needs no model: the attention
+    metrics are the only thing that loads one, and only the aligned solver
+    reads them. Ask for "ridge,whitened" and it will still work, but it will
+    want a GPU to be quick about the metrics.
+
+    Args:
+        artifacts: path under the artifact Volume, e.g. ``pair-slug/web``.
+        variants: comma-separated variant names to fit.
+        k: source layers per target layer.
+        lam: penalty, relative to the design scale.
+        rank: optional rank budget for the constrained variants.
+        name: subdirectory to write the maps into.
+
+    Returns:
+        Metadata describing what was fitted and where it landed.
+    """
+    from pathlib import Path
+
+    from kvxfer.experiment import ExperimentConfig, fit_mappers
+    from kvxfer.mapstore import save_maps
+
+    art = Path(ARTIFACT_DIR) / artifacts
+    config = ExperimentConfig(
+        k=k,
+        lam=lam,
+        rank=rank,
+        dtype="float32",  # CPU: bfloat16 matmuls there are slow and emulated
+        variants=tuple(v for v in variants.split(",") if v.strip()),
+    )
+    maps, metadata = fit_mappers(art, config)
+    out = save_maps(art / name, maps, metadata)
+    artifact_volume.commit()
+    print(f"\nwrote {out}")
+    return {"maps": str(out), "variants": metadata["variants"] if "variants" in metadata else list(maps)}
+
+
+@app.function(
     gpu="L4",
     volumes={CACHE_DIR: weights_volume, ARTIFACT_DIR: artifact_volume},
     timeout=2 * 60 * 60,
@@ -377,6 +434,7 @@ def latency(
     k: int = 4,
     lam: float = 1e-3,
     dtype: str = "bfloat16",
+    maps: str = "maps",
 ) -> dict:
     """Time map-and-inject against letting the target model prefill.
 
@@ -391,6 +449,9 @@ def latency(
         k: source layers per target layer.
         lam: penalty, relative to the design scale.
         dtype: cache and compute dtype.
+        maps: subdirectory of saved maps to reuse. Fitted on demand only when
+            it does not exist, so repeat measurements do not re-pay for maps
+            that never change.
 
     Returns:
         A serialisable record of every timing.
@@ -408,17 +469,31 @@ def latency(
     from kvxfer.planning import release_memory
 
     art = Path(ARTIFACT_DIR) / artifacts
-    # Only the isotropic map is timed, so only it is fitted. The attention
-    # aligned solver is the expensive one and nothing here reads it.
-    config = ExperimentConfig(k=k, lam=lam, dtype=dtype, variants=("ridge",))
-    maps, metadata = fit_mappers(art, config)
-    release_memory()
+    # Reuse stored maps when they exist. Only the isotropic map is timed, so
+    # only it is fitted when they do not.
+    from kvxfer.mapstore import load_maps, save_maps
 
-    target_geom = load_geometry(metadata["target"])
-    mapper = FittedMapper(
-        maps["ridge"]["keys"], maps["ridge"]["values"], target_geom, label="ridge"
-    )
-    del maps
+    saved = art / maps
+    config = ExperimentConfig(k=k, lam=lam, dtype=dtype, variants=("ridge",))
+    if (saved / "maps.json").exists():
+        print(f"loading maps from {saved}")
+        target_geom = load_geometry(
+            json.loads((art / "manifest.json").read_text())["target"]
+        )
+        mappers, metadata = load_maps(saved, target_geom)
+        mapper = mappers["ridge"]
+        del mappers
+    else:
+        print(f"no maps at {saved}; fitting them once and storing them there")
+        fitted, metadata = fit_mappers(art, config)
+        save_maps(saved, fitted, metadata)
+        artifact_volume.commit()
+        target_geom = load_geometry(metadata["target"])
+        mapper = FittedMapper(
+            fitted["ridge"]["keys"], fitted["ridge"]["values"], target_geom,
+            label="ridge",
+        )
+        del fitted
     release_memory()
 
     torch_dtype = getattr(torch, dtype)

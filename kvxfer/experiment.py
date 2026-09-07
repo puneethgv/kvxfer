@@ -339,17 +339,26 @@ def fit_mappers(
 
     target_geom = load_geometry(target_id)
     dtype = getattr(torch, config.dtype)
-    tokenizer = load_tokenizer(source_id)
-    target_model = load_model(target_id, dtype=dtype)
+    plan = variant_plan(config)
 
-    print("\ncollecting query second moments for the key metric")
-    probe = build_calibration(tokenizer, seq_len=512, n_sequences=config.query_sequences)
-    q_moments = collect_query_moments(
-        target_model, target_geom, probe, n_sequences=config.query_sequences
-    )
-    metrics = {
-        "ridge": {"keys": None, "values": None},
-        "whitened": {
+    # The attention metrics cost a model load and a pass of forward hooks to
+    # collect query moments. Only the aligned solver reads them, so a
+    # ridge-only fit skips all of it -- and then needs no model at all, which
+    # is what lets fitting run on a CPU container instead of holding a GPU.
+    metrics: dict[str, dict[str, HeadMetrics | None]] = {
+        "ridge": {"keys": None, "values": None}
+    }
+    if any(name == "whitened" for name, _ in plan.values()):
+        tokenizer = load_tokenizer(source_id)
+        target_model = load_model(target_id, dtype=dtype)
+        print("\ncollecting query second moments for the key metric")
+        probe = build_calibration(
+            tokenizer, seq_len=512, n_sequences=config.query_sequences
+        )
+        q_moments = collect_query_moments(
+            target_model, target_geom, probe, n_sequences=config.query_sequences
+        )
+        metrics["whitened"] = {
             "keys": key_metric(
                 q_moments,
                 target_geom.head_dim,
@@ -357,15 +366,12 @@ def fit_mappers(
                 max_offset=config.metric_offset,
             ).normalized(),
             "values": value_metric(target_model, target_geom).normalized(),
-        },
-    }
-
-    # The target model is not needed again here, and the fitting that follows
-    # wants the memory for statistics.
-    del q_moments, probe, target_model, tokenizer
-    release_memory()
-
-    plan = variant_plan(config)
+        }
+        # Not needed again; the fitting that follows wants the memory.
+        del q_moments, probe, target_model, tokenizer
+        release_memory()
+    else:
+        print("\nno variant needs the attention metrics; skipping the model load")
     maps: dict[str, dict[str, dict[int, object]]] = {name: {} for name in plan}
     selection: dict[str, dict[int, tuple[int, ...]]] = {}
     diagnostics: dict[str, dict] = {name: {} for name in plan}
