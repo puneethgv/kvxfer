@@ -318,6 +318,8 @@ def evaluate(
     lam: float = 1e-3,
     alpha: float = 1.0,
     dtype: str = "bfloat16",
+    maps: str = "",
+    residual: str = "",
 ) -> dict:
     """Fit both solvers from cached statistics and evaluate them.
 
@@ -335,7 +337,11 @@ def evaluate(
         k: source layers per target layer.
         lam: penalty, relative to the design scale.
         alpha: how far the attention metric reshapes that penalty.
-        dtype: evaluation precision. bfloat16 by default, matching both the
+        dtype: evaluation precision.
+        maps: subdirectory of stored maps to evaluate instead of refitting.
+        residual: subdirectory of a trained residual to add as a condition. It
+            is scored alongside its own frozen base, so the comparison isolates
+            what training added rather than comparing across configurations. bfloat16 by default, matching both the
             harvest and the local runs. float32 is not a safe default here: a
             4B target costs 16 GB of weights rather than 8, and with the source
             model alongside it does not fit a 22 GiB L4 at all.
@@ -350,15 +356,36 @@ def evaluate(
 
     art = Path(ARTIFACT_DIR) / artifacts
     config = ExperimentConfig(
-        tasks=tuple(tasks.split(",")),
+        tasks=tuple(t for t in tasks.split(",") if t.strip()),
         limit=limit,
         ppl_documents=ppl_documents,
         k=k,
         lam=lam,
         alpha=alpha,
         dtype=dtype,
+        variants=("ridge",) if residual else (),
     )
-    payload = run_experiment(art, config)
+
+    if maps or residual:
+        from kvxfer.experiment import evaluate_mappers
+        from kvxfer.geometry import load_geometry
+        from kvxfer.mapstore import load_maps
+        from kvxfer.solvers.neural import load_residual
+
+        target_geom = load_geometry(
+            json.loads((art / "manifest.json").read_text())["target"]
+        )
+        mappers, metadata = load_maps(art / (maps or "maps"), target_geom)
+        if residual:
+            base = mappers["ridge"]
+            # Trained residual and its own frozen base, side by side: the
+            # difference between them is what training bought and nothing else.
+            mappers["residual"] = load_residual(
+                art / residual, base.key_maps, base.value_maps, target_geom
+            )
+        payload = evaluate_mappers(mappers, metadata, config)
+    else:
+        payload = run_experiment(art, config)
     (art / "results.json").write_text(json.dumps(payload, indent=2))
     artifact_volume.commit()
     print(f"\nwrote {art / 'results.json'}")

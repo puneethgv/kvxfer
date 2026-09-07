@@ -250,12 +250,14 @@ def fit_all_layers(
 def _comparisons(names) -> list[tuple[str, str]]:
     """Which conditions to test against each other, as (baseline, contender).
 
-    Every comparison is isotropic-versus-aligned at otherwise identical
-    settings, because that difference is the thing under test. Comparing across
-    ranks, or against the floor, would measure something nobody disputes.
+    Every comparison holds everything fixed except the one thing under test:
+    the objective for isotropic-versus-aligned, and training for
+    ridge-versus-residual, where the residual sits on top of that exact frozen
+    ridge. Comparing across ranks, or against the floor, would measure
+    something nobody disputes.
     """
     names = set(names)
-    pairs = [("ridge", "whitened")]
+    pairs = [("ridge", "whitened"), ("ridge", "residual")]
     pairs += [
         (iso, iso.replace("_iso", "_aligned"))
         for iso in sorted(names)
