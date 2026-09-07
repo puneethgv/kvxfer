@@ -9,6 +9,7 @@ real activations.
 
 from __future__ import annotations
 
+import pytest
 import torch
 
 from kvxfer.geometry import KVGeometry
@@ -211,3 +212,27 @@ def test_in_sample_r2_is_misleading_when_underdetermined():
         "expected in-sample R2 to saturate when the design interpolates; "
         f"got {fit.r2:.4f}"
     )
+
+
+def test_check_pair_rejects_models_that_do_not_share_a_tokenizer():
+    """Matched KV geometry is necessary but not sufficient.
+
+    One set of token ids is prefilled through both models, so they must agree
+    on what those ids mean. Mistral-7B-v0.3 and Ministral-8B have identical KV
+    geometry -- 8 heads of 128 -- and vocabularies of 32,768 and 131,072. That
+    pair passed every check, ran a full pipeline on rented hardware, and
+    produced chance-level accuracy on every condition routed through the
+    target, while the source, scored with its own tokenizer, looked healthy.
+    """
+    from kvxfer.geometry import IncompatiblePairError, KVGeometry, check_pair
+
+    def geom(model_id: str, vocab: int) -> KVGeometry:
+        return KVGeometry(
+            model_id=model_id, n_layers=32, n_q_heads=32, n_kv_heads=8,
+            head_dim=128, hidden_size=4096, rope_theta=1e6, vocab_size=vocab,
+        )
+
+    check_pair(geom("a", 131072), geom("b", 131072))  # same tokenizer: fine
+
+    with pytest.raises(IncompatiblePairError, match="do not share a tokenizer"):
+        check_pair(geom("small-vocab", 32768), geom("big-vocab", 131072))

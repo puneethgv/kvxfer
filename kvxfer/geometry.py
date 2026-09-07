@@ -24,6 +24,7 @@ class KVGeometry:
     head_dim: int
     hidden_size: int
     rope_theta: float
+    vocab_size: int = 0
 
     @property
     def kv_dim(self) -> int:
@@ -74,6 +75,7 @@ def load_geometry(model_id: str) -> KVGeometry:
         head_dim=head_dim,
         hidden_size=cfg.hidden_size,
         rope_theta=_rope_theta(cfg),
+        vocab_size=int(getattr(cfg, "vocab_size", 0)),
     )
 
 
@@ -103,10 +105,24 @@ def _rope_theta(cfg) -> float:
 def check_pair(source: KVGeometry, target: KVGeometry) -> None:
     """Assert that a source -> target KV mapping is well posed.
 
+    Matched KV geometry is necessary but not sufficient. The pair must also
+    share a tokenizer, because one set of token ids is prefilled through both
+    models and the cache positions have to correspond. Differing vocabulary
+    sizes are the reliable signal that they do not: Mistral-7B-v0.3 tokenizes
+    to 32,768 ids and Ministral-8B to 131,072, and feeding the first model's
+    ids to the second produced chance-level accuracy on every condition that
+    ran through the target -- while the source, scored with its own tokenizer,
+    looked perfectly healthy at 0.82.
+
     Raises:
-        IncompatiblePairError: if head counts or head dims differ.
+        IncompatiblePairError: if head counts, head dims, or vocabularies differ.
     """
     problems = []
+    if source.vocab_size != target.vocab_size:
+        problems.append(
+            f"vocab_size differs: source={source.vocab_size} "
+            f"target={target.vocab_size}, so the two do not share a tokenizer"
+        )
     if source.n_kv_heads != target.n_kv_heads:
         problems.append(
             f"n_kv_heads differ: source={source.n_kv_heads} target={target.n_kv_heads}"
