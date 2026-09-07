@@ -59,7 +59,12 @@ image = (
 # dependency of the method.
 vllm_image = (
     modal.Image.debian_slim(python_version="3.12")
-    .pip_install("vllm==0.11.0", "hf_transfer>=0.1")
+    # transformers is pinned below 5 because vLLM 0.11 still calls
+    # tokenizer.all_special_tokens_extended, which v5 removed -- the run dies
+    # at tokenizer load, before any timing. This differs from the transformers
+    # version the method itself runs on, which is fine: what is being timed
+    # here is vLLM's own prefill kernels, not anything transformers does.
+    .pip_install("vllm==0.11.0", "transformers<5", "hf_transfer>=0.1")
     .env({"HF_HOME": CACHE_DIR, "HF_HUB_ENABLE_HF_TRANSFER": "1", "VLLM_USE_V1": "1"})
 )
 
@@ -393,7 +398,9 @@ def latency(
     from kvxfer.planning import release_memory
 
     art = Path(ARTIFACT_DIR) / artifacts
-    config = ExperimentConfig(k=k, lam=lam, dtype=dtype)
+    # Only the isotropic map is timed, so only it is fitted. The attention
+    # aligned solver is the expensive one and nothing here reads it.
+    config = ExperimentConfig(k=k, lam=lam, dtype=dtype, variants=("ridge",))
     maps, metadata = fit_mappers(art, config)
     release_memory()
 

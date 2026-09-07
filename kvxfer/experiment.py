@@ -57,6 +57,13 @@ def variant_plan(config: "ExperimentConfig") -> dict[str, tuple[str, int]]:
     if config.rank:
         plan[f"rank{config.rank}_iso"] = ("ridge", config.rank)
         plan[f"rank{config.rank}_aligned"] = ("whitened", config.rank)
+    if config.variants:
+        # A latency benchmark needs one map, not a comparison. Fitting the
+        # others anyway doubles the time a GPU is held for work nothing reads.
+        plan = {name: spec for name, spec in plan.items() if name in config.variants}
+        missing = set(config.variants) - set(plan)
+        if missing:
+            raise ValueError(f"unknown variants requested: {sorted(missing)}")
     return plan
 
 
@@ -85,6 +92,7 @@ class ExperimentConfig:
     alpha: float = 1.0
     alphas: dict[str, float] = field(default_factory=dict)
     rank: int = 0
+    variants: tuple[str, ...] = ()
     n_candidates: int = 6
     selection: str = "topk"
     metric_offset: int = 2048
