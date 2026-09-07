@@ -61,6 +61,31 @@ retention does.
 The map reaches 15 TFLOPS of the card's ~121, so roughly 8× of implementation
 headroom remains against a 13.3× FLOP ceiling.
 
+The same measurement on Ministral-8B → Mistral-Nemo-12B, both halves on one
+A100-80GB:
+
+| tokens | vLLM prefill | map + inject | **warm** | cold |
+|---|---|---|---|---|
+| 512 | 60.4 ms | 12.5 ms | **4.84×** | 0.95× |
+| 1024 | 108.4 ms | 15.9 ms | **6.80×** | 0.98× |
+| 2048 | 202.4 ms | 27.3 ms | **7.41×** | 0.97× |
+| 4096 | 413.4 ms | 52.9 ms | **7.82×** | 1.00× |
+| 8192 | 871.2 ms | 95.9 ms | **9.09×** | 1.02× |
+
+Warm is more than twice the Qwen3 figure, and predictably so: the map's cost
+scales with `kv_dim²` while the prefill it replaces scales with parameter
+count, and those are independent. Both pairs have 8 KV heads of 128, but
+Mistral-Nemo is 12.25B against Qwen3-4B's 4.02B, which puts the ceiling at
+36.5× rather than 13.3×. Both measurements land at 25–30% of their own ceiling,
+so the implementation is equally (in)efficient in each.
+
+**Cold is worthless on this pair — 0.95–1.02×.** Ministral-8B's prefill costs
+758 ms against Mistral-Nemo's 871 ms, because 8B to 12B is only a 1.5× size
+ratio. The Qwen3 pair, at a 2.3× ratio, managed 1.29×. So the method's value
+depends entirely on the source model having already run, and shrinks toward
+nothing as the two models converge in size. That is a limit on the escalation
+story, not a detail of it.
+
 ### 2b. It generalizes across families
 
 Three families, no code changes beyond capturing queries from `q_proj` where a

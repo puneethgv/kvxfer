@@ -1,0 +1,61 @@
+{
+  "source": "mistralai/Ministral-8B-Instruct-2410",
+  "target": "mistralai/Mistral-Nemo-Instruct-2407",
+  "lengths_requested": [
+    512,
+    1024,
+    2048,
+    4096,
+    8192
+  ],
+  "gpu": "NVIDIA A100 80GB PCIe",
+  "dtype": "bfloat16",
+  "k": 4,
+  "points": [
+    {
+      "n_tokens": 512,
+      "target_prefill_ms": 75.6830810000011,
+      "source_prefill_ms": 50.884412000002044,
+      "map_ms": 9.800556000001848,
+      "inject_ms": 2.670715000000712,
+      "warm_speedup": 6.068594051078319,
+      "cold_speedup": 1.1945744630358668
+    },
+    {
+      "n_tokens": 1024,
+      "target_prefill_ms": 137.03970399999577,
+      "source_prefill_ms": 95.19422900000052,
+      "map_ms": 12.545553000002485,
+      "inject_ms": 3.396633999997789,
+      "warm_speedup": 8.59604168487005,
+      "cold_speedup": 1.2330765102232089
+    },
+    {
+      "n_tokens": 2048,
+      "target_prefill_ms": 257.2054500000007,
+      "source_prefill_ms": 181.6340329999946,
+      "map_ms": 21.625884999998846,
+      "inject_ms": 5.677366999996991,
+      "warm_speedup": 9.420322897801329,
+      "cold_speedup": 1.2310174797189142
+    },
+    {
+      "n_tokens": 4096,
+      "target_prefill_ms": 517.7746489999961,
+      "source_prefill_ms": 360.6898720000018,
+      "map_ms": 42.62649300000021,
+      "inject_ms": 10.244139999997515,
+      "warm_speedup": 9.793237183296412,
+      "cold_speedup": 1.25199249623703
+    },
+    {
+      "n_tokens": 8192,
+      "target_prefill_ms": 1084.003021000001,
+      "source_prefill_ms": 758.0121659999932,
+      "map_ms": 76.41323999999372,
+      "inject_ms": 19.47782300000256,
+      "warm_speedup": 11.30452606412386,
+      "cold_speedup": 1.2694682303397335
+    }
+  ]
+}
