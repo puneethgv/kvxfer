@@ -676,6 +676,56 @@ def train(
 
 
 @app.local_entrypoint()
+def big(
+    source: str = "mistralai/Mistral-7B-v0.3",
+    target: str = "mistralai/Ministral-8B-Instruct-2410",
+    layer_stride: int = 2,
+    batch_size: int = 2,
+    gpu: str = "A100-40GB",
+    steps: int = 500,
+) -> None:
+    """Run a pair whose weights do not fit a 22 GiB card.
+
+    Mistral-7B and Ministral-8B are 30.5 GB of bfloat16 between them, so the
+    L4 the other entrypoints use is not an option. The functions are the same;
+    only the accelerator is swapped.
+
+    Only ridge and the trained residual are fitted. The attention-aligned
+    solver is skipped deliberately: on a family without per-head query
+    normalization its metric is severely ill-conditioned, and at alpha=1 it
+    drove held-out R2 to -10.1 on Qwen2.5 and perplexity to six figures. It is
+    a known failure, not something to pay to rediscover.
+
+    ``steps`` defaults well below the Qwen3 run's 2000 because that run's loss
+    was flat from roughly step 25; the extra steps bought nothing and here they
+    would cost several dollars an hour more.
+    """
+    fetch_weights.remote([source, target])
+    manifest = calibrate.with_options(gpu=gpu).remote(
+        source=source, target=target, layer_stride=layer_stride,
+        passes="split", batch_size=batch_size,
+    )
+    print(f"calibration finished in {manifest['total_seconds']}s")
+
+    slug = f"{source.split('/')[-1].lower()}__to__{target.split('/')[-1].lower()}"
+    artifacts = f"{slug}/" + "-".join(sorted(manifest["mixture"]))
+
+    fit.remote(artifacts=artifacts, variants="ridge")
+    train.with_options(gpu=gpu).remote(artifacts=artifacts, steps=steps)
+    payload = evaluate.with_options(gpu=gpu).remote(
+        artifacts=artifacts, maps="maps", residual="residual",
+    )
+    for name, result in payload["perplexity"].items():
+        print(f"  {name:10s} ppl={result['perplexity']:.4f}")
+    for task, block in payload["results"].items():
+        print(f"\n{task}:")
+        for name, cond in block["conditions"].items():
+            ret = block["retention"].get(name)
+            print(f"  {name:10s} acc={cond['accuracy']:.4f}"
+                  + (f"  retention={ret:.1%}" if ret is not None else ""))
+
+
+@app.local_entrypoint()
 def main(
     source: str = "Qwen/Qwen3-1.7B",
     target: str = "Qwen/Qwen3-4B",
