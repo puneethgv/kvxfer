@@ -520,6 +520,14 @@ def evaluate_mappers(
     conditions: dict[str, object] = {"floor": ZeroMapper(target_geom)}
     conditions.update(mappers)
 
+    # Place every mapper that can be placed. A trained residual carries nn
+    # parameters that stay on the host otherwise, and the failure is a device
+    # mismatch raised mid-evaluation rather than anything diagnostic.
+    device = next(target_model.parameters()).device
+    for mapper in conditions.values():
+        if hasattr(mapper, "to"):
+            mapper.to(device)
+
     # Perplexity first: it yields one measurement per token rather than one per
     # item, which is the difference between resolving a mapper's effect and not.
     scored = config.ppl_seq_len - config.ppl_prefix
