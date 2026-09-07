@@ -132,6 +132,12 @@ def benchmark_lengths(
     vocab = vocab_size or int(target_model.config.vocab_size)
     generator = torch.Generator(device="cpu").manual_seed(seed)
 
+    # Place the maps on the accelerator once. A deployed mapper would load them
+    # there and keep them there; timing a per-call host-to-device copy would
+    # measure a loading strategy nobody would ship.
+    if hasattr(mapper, "to"):
+        mapper.to(device, dtype)
+
     def release() -> None:
         if device.type == "cuda":
             torch.cuda.empty_cache()

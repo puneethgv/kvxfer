@@ -11,6 +11,8 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 
+from dataclasses import replace
+
 import torch
 from torch import Tensor
 
@@ -92,12 +94,27 @@ def _apply_on(fit: LinearMap, design: Tensor) -> Tensor:
 
     Routes through the factors when the map has them, so a rank-constrained
     map never reconstitutes the dense matrix it exists to avoid.
+
+    The ``.to`` calls are no-ops once :meth:`FittedMapper.to` has placed the
+    maps on the compute device. Left on the host they are not: the maps are
+    302M parameters for a 1.7B-to-4B pair, so moving them per layer per call
+    pushes about 1.2 GB across PCIe every time a cache is mapped, which
+    measured as 195 ms to map a 512-token cache that the target model prefills
+    in 99 ms.
     """
-    bias = fit.bias.to(design.device, design.dtype)
-    if fit.factors is not None:
-        left, right = (f.to(design.device, design.dtype) for f in fit.factors)
-        return (design @ left) @ right + bias
-    return design @ fit.weight.to(design.device, design.dtype) + bias
+    parts = fit.factors if fit.factors is not None else (fit.weight,)
+    if parts[0].device != design.device:
+        parts = tuple(t.to(design.device) for t in parts)
+
+    # The design follows the map's dtype rather than the reverse. Casting the
+    # map up to float32 would keep the multiply off the accelerator's tensor
+    # cores, and the cache it feeds is bfloat16 anyway, so the precision was
+    # never going to survive.
+    x = design.to(parts[0].dtype)
+    bias = fit.bias.to(x.device, x.dtype)
+    if len(parts) == 2:
+        return (x @ parts[0]) @ parts[1] + bias
+    return x @ parts[0] + bias
 
 
 class FittedMapper(Mapper):
@@ -147,6 +164,34 @@ class FittedMapper(Mapper):
             batch * seq, n_layers * n_kv * head_dim
         )
 
+    def to(self, device: torch.device | str, dtype: torch.dtype | None = None) -> "FittedMapper":
+        """Place every stored map on ``device``, once, in place.
+
+        Mapping is a per-layer matrix multiply, so leaving the maps on the host
+        makes every call pay a host-to-device copy of the whole map. Doing it
+        once here is the difference between the map costing more than the
+        prefill it replaces and costing a fraction of it.
+
+        ``dtype`` should be the compute dtype the models run in. The maps are
+        fitted and stored in float32 for conditioning, but applying them in
+        float32 gives up the accelerator's tensor cores for no accuracy that
+        survives a bfloat16 cache.
+
+        Returns:
+            ``self``, so this can be chained onto construction.
+        """
+        for maps in (self.key_maps, self.value_maps):
+            for layer, fit in maps.items():
+                moved = {"bias": fit.bias.to(device=device, dtype=dtype)}
+                if fit.weight is not None:
+                    moved["weight"] = fit.weight.to(device=device, dtype=dtype)
+                if fit.factors is not None:
+                    moved["factors"] = tuple(
+                        f.to(device=device, dtype=dtype) for f in fit.factors
+                    )
+                maps[layer] = replace(fit, **moved)
+        return self
+
     def _map_one(
         self, source: Tensor, maps: dict[int, LinearMap], batch: int, seq: int
     ) -> Tensor:
@@ -162,7 +207,7 @@ class FittedMapper(Mapper):
         for layer in range(self.geometry.n_layers):
             fit = maps[layer]
             design = self._design(source, fit.source_layers)
-            predicted = _apply_on(fit, design)
+            predicted = _apply_on(fit, design).to(out.dtype)
             out[layer] = predicted.reshape(
                 batch, seq, self.geometry.n_kv_heads, self.geometry.head_dim
             ).permute(0, 2, 1, 3)

@@ -94,6 +94,10 @@ def vllm_prefill(
     token, which is prefill plus one decode step. The decode step is a constant
     of a few milliseconds and is reported so it can be subtracted.
 
+    A sanity floor worth keeping in mind when reading the output: a 4B model
+    over 8192 tokens is 65.9 TFLOP, which an L4 cannot do in under about
+    544 ms. Anything faster is not measuring prefill.
+
     Args:
         model: model id, matching the transfer target being compared against.
         lengths: comma-separated prompt lengths in tokens.
@@ -106,29 +110,35 @@ def vllm_prefill(
 
     from vllm import LLM, SamplingParams
 
+    # Prefix caching off. With it on, the warmup populates the cache and every
+    # timed run of the same prompt is served from it: the first version of this
+    # reported 74.5 ms to prefill 8192 tokens, which is below the 544 ms floor
+    # the card's peak throughput allows, so it was timing cache hits.
     llm = LLM(
         model=model,
         dtype="bfloat16",
         gpu_memory_utilization=0.85,
         enforce_eager=False,
         max_model_len=16384,
+        enable_prefix_caching=False,
         disable_log_stats=True,
     )
-    tokenizer = llm.get_tokenizer()
     one_token = SamplingParams(max_tokens=1, temperature=0.0)
 
     out = {"model": model, "engine": "vllm", "points": []}
     for n_tokens in (int(v) for v in lengths.split(",")):
-        # A real token sequence, not a repeated id: prefix caching would
-        # otherwise short-circuit the very work being measured.
-        prompt_ids = list(range(1000, 1000 + n_tokens))
-        prompt = tokenizer.decode(prompt_ids)
+        # Token ids are passed directly, so the prompt is exactly n_tokens long
+        # rather than however many tokens a decoded string re-encodes to. Each
+        # timed run also uses a different prompt, belt and braces against any
+        # caching that survives the flag above.
+        def prompt_at(offset: int) -> dict:
+            return {"prompt_token_ids": list(range(offset, offset + n_tokens))}
 
-        llm.generate([prompt], one_token)  # warmup / compile
+        llm.generate([prompt_at(1000)], one_token)  # warmup / compile
         samples = []
-        for _ in range(repeats):
+        for run in range(repeats):
             start = time.perf_counter()
-            llm.generate([prompt], one_token)
+            llm.generate([prompt_at(2000 + run * n_tokens)], one_token)
             samples.append((time.perf_counter() - start) * 1000.0)
         samples.sort()
         median = samples[len(samples) // 2]
