@@ -397,3 +397,31 @@ def test_alpha_interpolates_between_the_two_objectives():
     assert all(
         b > a for a, b in zip(distances, distances[1:])
     ), f"not monotone in alpha: {distances}"
+
+
+def test_query_capture_handles_families_without_per_head_norm():
+    """Queries must be collectable from q_proj, not only from q_norm.
+
+    Qwen3 normalizes queries per head and so exposes them already shaped
+    (batch, seq, heads, dim). Qwen2, Mistral and Llama have no such module, and
+    hooking q_proj yields the same vectors flattened to (batch, seq,
+    heads * dim). Assuming the first shape sent a Qwen2.5 run to an
+    AttributeError partway into a paid job.
+    """
+    from kvxfer.queries import _QueryMomentHook
+
+    geom = _geom(N_TGT_LAYERS)
+    batch, seq = 2, 4
+    torch.manual_seed(0)
+    flat = torch.randn(batch, seq, geom.n_q_heads * geom.head_dim)
+    shaped = flat.view(batch, seq, geom.n_q_heads, geom.head_dim)
+
+    from_proj = _QueryMomentHook(geom, torch.device("cpu"))
+    from_proj.make(0)(None, None, flat)
+    from_norm = _QueryMomentHook(geom, torch.device("cpu"))
+    from_norm.make(0)(None, None, shaped)
+
+    assert from_proj.n_tokens == from_norm.n_tokens
+    assert torch.allclose(from_proj.moments, from_norm.moments, atol=1e-6), (
+        "the two capture points disagree; the metric would depend on architecture"
+    )

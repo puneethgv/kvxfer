@@ -41,11 +41,22 @@ class _QueryMomentHook:
 
     def make(self, layer_idx: int):
         def hook(_module, _inputs, output: Tensor) -> None:
-            # (batch, seq, n_q_heads, head_dim), pre-RoPE and post q_norm.
+            # Pre-RoPE queries. Qwen3 normalizes them per head, so the q_norm
+            # output already arrives as (batch, seq, heads, dim); Qwen2, Mistral
+            # and Llama have no such module and are hooked at q_proj, which
+            # emits (batch, seq, heads * dim). Both are the same vectors.
             q = output.detach()
-            if q.dim() != 4:
+            if q.dim() == 3:
+                batch, seq, width = q.shape
+                expected = self.geometry.n_q_heads * self.geometry.head_dim
+                if width != expected:
+                    raise RuntimeError(
+                        f"expected q_proj width {expected}, got {width}"
+                    )
+                q = q.view(batch, seq, self.geometry.n_q_heads, self.geometry.head_dim)
+            elif q.dim() != 4:
                 raise RuntimeError(
-                    f"expected (batch, seq, heads, dim) from q_norm, got {tuple(q.shape)}"
+                    f"expected 3 or 4 dimensions of queries, got {tuple(q.shape)}"
                 )
             q = q[:, :: self._stride].to(torch.float32)
             batch, seq, n_heads, head_dim = q.shape
@@ -90,10 +101,20 @@ def collect_query_moments(
     collector = _QueryMomentHook(geometry, device)
     collector.set_stride(token_stride)
 
-    handles = [
-        layer.self_attn.q_norm.register_forward_hook(collector.make(idx))
-        for idx, layer in enumerate(model.model.layers)
-    ]
+    handles = []
+    for idx, layer in enumerate(model.model.layers):
+        attn = layer.self_attn
+        # q_norm where the family has it, the projection itself otherwise. The
+        # metric needs pre-RoPE queries, and both modules emit exactly those.
+        module = getattr(attn, "q_norm", None)
+        if module is None:
+            module = getattr(attn, "q_proj", None)
+        if module is None:
+            raise AttributeError(
+                f"layer {idx} exposes neither q_norm nor q_proj; cannot capture "
+                "queries for the attention metric"
+            )
+        handles.append(module.register_forward_hook(collector.make(idx)))
     try:
         subset = CalibrationSet(
             calibration.input_ids[:n_sequences], calibration.domains[:n_sequences]
@@ -105,5 +126,7 @@ def collect_query_moments(
             handle.remove()
 
     if collector.n_tokens == 0:
-        raise RuntimeError("no queries captured; is q_norm present on this model?")
+        raise RuntimeError(
+            "no queries captured; does this model expose q_norm or q_proj?"
+        )
     return (collector.moments / collector.n_tokens).cpu()
