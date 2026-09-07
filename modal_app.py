@@ -680,18 +680,24 @@ def train(
 
 @app.local_entrypoint()
 def big(
-    source: str = "mistralai/Mistral-7B-v0.3",
-    target: str = "mistralai/Ministral-8B-Instruct-2410",
+    source: str = "mistralai/Ministral-8B-Instruct-2410",
+    target: str = "mistralai/Mistral-Nemo-Instruct-2407",
     layer_stride: int = 2,
     batch_size: int = 2,
-    gpu: str = "A100-40GB",
+    gpu: str = "A100-80GB",
     steps: int = 500,
+    variants: str = "ridge",
 ) -> None:
     """Run a pair whose weights do not fit a 22 GiB card.
 
-    Mistral-7B and Ministral-8B are 30.5 GB of bfloat16 between them, so the
+    Ministral-8B and Mistral-Nemo are 37.8 GB of bfloat16 between them, so the
     L4 the other entrypoints use is not an option. The functions are the same;
     only the accelerator is swapped.
+
+    The defaults are that pair rather than Mistral-7B to Ministral-8B, which
+    has identical KV geometry and a different tokenizer -- 32,768 ids against
+    131,072 -- and produced chance-level accuracy on every condition routed
+    through the target before check_pair learned to reject it.
 
     Only ridge and the trained residual are fitted. The attention-aligned
     solver is skipped deliberately: on a family without per-head query
