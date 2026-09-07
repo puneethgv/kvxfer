@@ -33,7 +33,7 @@ def check_injection(
         "from another. Early astronomers knew their observations disagreed."
     ),
     n_context: int | None = None,
-    tolerance: float = 1e-2,
+    tolerance: float | None = None,
     dtype: torch.dtype = torch.float32,
 ) -> float:
     """Verify that injecting a model's own cache reproduces standalone scoring.
@@ -50,11 +50,16 @@ def check_injection(
         text: probe text; anything long enough to split into context and
             continuation will do.
         n_context: context length in tokens; defaults to half the probe.
-        tolerance: allowed absolute difference in total log probability.
+        tolerance: allowed difference in nats per scored token. Defaults to a
+            value appropriate to ``dtype``, which matters more than it sounds:
+            a cache round trip in bfloat16 costs about 0.006 nats per token on
+            a model known to be supported, so a threshold calibrated in float32
+            rejects everything. Doing exactly that killed a paid run on a pair
+            that turned out to be fine.
         dtype: dtype for the injected cache.
 
     Returns:
-        The measured absolute difference in nats.
+        The measured absolute difference in nats per token.
 
     Raises:
         InjectionGateError: if the difference exceeds ``tolerance``.
@@ -77,12 +82,19 @@ def check_injection(
         n_cached=n_cached,
     )
 
+    # Per token, so the threshold does not depend on probe length.
     delta = abs(injected.total_logprob - standalone.total_logprob)
+    delta /= max(standalone.n_tokens, 1)
+    if tolerance is None:
+        # float32 round trips are exact to ~1e-6; bfloat16 measures 0.006 on a
+        # supported model, and a genuine cache-layout mismatch is orders of
+        # magnitude larger than either -- it drives accuracy to chance.
+        tolerance = 1e-3 if dtype == torch.float32 else 5e-2
     if delta > tolerance:
         raise InjectionGateError(
             f"{getattr(model.config, 'name_or_path', type(model).__name__)} scores "
-            f"differently through its own injected cache: {delta:.4f} nats over "
-            f"{standalone.n_tokens} tokens (standalone "
+            f"differently through its own injected cache: {delta:.4f} nats per "
+            f"token over {standalone.n_tokens} tokens (standalone "
             f"{standalone.total_logprob:.4f}, injected {injected.total_logprob:.4f}). "
             "Every retention figure measured against this model would be "
             "meaningless. Models using sliding-window attention are a known "
