@@ -377,3 +377,82 @@ def train_residual(
         final_loss=history[-1] if history else float("nan"),
         history=history,
     )
+
+
+def _residual_map(self, source: "ContentKV") -> "ContentKV":
+    """Map a source cache through the frozen base plus the trained residual.
+
+    Mirrors :meth:`kvxfer.mappers.FittedMapper.map` so a trained residual can
+    be dropped into the same evaluation and latency paths as any other mapper.
+    Without this the residual could be trained but not measured, which is how a
+    model ends up reported on its training loss.
+    """
+    from kvxfer.cache import ContentKV
+
+    _, batch, _, seq, _ = source.keys.shape
+    mapped = {}
+    for kind, side in (("keys", source.keys), ("values", source.values)):
+        out = torch.empty(
+            self.geometry.n_layers,
+            batch,
+            self.geometry.n_kv_heads,
+            seq,
+            self.geometry.head_dim,
+            dtype=torch.float32,
+            device=side.device,
+        )
+        for layer in range(self.geometry.n_layers):
+            maps = self.key_maps if kind == "keys" else self.value_maps
+            design = design_rows(side, maps[layer].source_layers)
+            base, correction = self.base_and_residual(design, layer, kind)
+            out[layer] = (
+                (base + correction)
+                .reshape(batch, seq, self.geometry.n_kv_heads, self.geometry.head_dim)
+                .permute(0, 2, 1, 3)
+                .to(torch.float32)
+            )
+        mapped[kind] = out
+
+    return ContentKV(
+        keys=mapped["keys"], values=mapped["values"], position_ids=source.position_ids
+    )
+
+
+def _residual_name(self) -> str:
+    return getattr(self, "label", "residual")
+
+
+ResidualMapper.map = _residual_map
+ResidualMapper.name = property(_residual_name)
+
+
+def load_residual(
+    path,
+    key_maps: dict[int, LinearMap],
+    value_maps: dict[int, LinearMap],
+    geometry: KVGeometry,
+    label: str = "residual",
+) -> ResidualMapper:
+    """Rebuild a trained residual mapper from disk.
+
+    Args:
+        path: directory containing ``residual.pt``.
+        key_maps: the frozen base key maps it was trained on top of.
+        value_maps: the frozen base value maps.
+        geometry: target model geometry.
+        label: name used in results tables.
+
+    Returns:
+        The mapper, in eval mode.
+    """
+    from pathlib import Path
+
+    state = torch.load(Path(path) / "residual.pt", weights_only=False)
+    mapper = ResidualMapper(
+        key_maps, value_maps, geometry, state["design_dim"], hidden=state["hidden"]
+    )
+    mapper.key_residual.load_state_dict(state["key_residual"])
+    mapper.value_residual.load_state_dict(state["value_residual"])
+    mapper.label = label
+    mapper.eval()
+    return mapper

@@ -176,3 +176,53 @@ def test_residual_stays_a_bottleneck_at_deployment_scale():
 
     # And it must genuinely be a bottleneck: narrower than both ends.
     assert 256 < kv_dim < design_dim
+
+
+def test_trained_residual_can_be_evaluated_like_any_mapper():
+    """A residual that cannot be measured is a residual reported on its own loss.
+
+    The evaluation path takes anything with ``map`` and ``name``, so the
+    trained mapper has to satisfy the same interface as the closed-form one or
+    it can only ever be judged by its training curve.
+    """
+    from kvxfer.cache import ContentKV
+
+    mapper = _mapper()
+    mapper.label = "residual"
+    batch, seq = 2, 5
+    content = ContentKV(
+        keys=torch.randn(2, batch, N_KV_HEADS, seq, HEAD_DIM),
+        values=torch.randn(2, batch, N_KV_HEADS, seq, HEAD_DIM),
+        position_ids=torch.arange(seq).expand(batch, seq),
+    )
+
+    out = mapper.map(content)
+    assert out.keys.shape == (N_LAYERS, batch, N_KV_HEADS, seq, HEAD_DIM)
+    assert out.values.shape == out.keys.shape
+    assert torch.isfinite(out.keys).all() and torch.isfinite(out.values).all()
+    assert mapper.name == "residual"
+
+
+def test_untrained_residual_maps_identically_to_its_base():
+    """With a zeroed residual the mapper must equal the closed-form mapper.
+
+    This is the control for every later comparison: a difference measured
+    between them then comes from training rather than from the two paths
+    disagreeing about how to apply the same map.
+    """
+    from kvxfer.cache import ContentKV
+    from kvxfer.mappers import FittedMapper
+
+    mapper = _mapper()
+    plain = FittedMapper(mapper.key_maps, mapper.value_maps, _geom(), label="ridge")
+
+    batch, seq = 1, 4
+    content = ContentKV(
+        keys=torch.randn(2, batch, N_KV_HEADS, seq, HEAD_DIM),
+        values=torch.randn(2, batch, N_KV_HEADS, seq, HEAD_DIM),
+        position_ids=torch.arange(seq).expand(batch, seq),
+    )
+
+    trained, base = mapper.map(content), plain.map(content)
+    assert torch.allclose(trained.keys, base.keys, atol=1e-5)
+    assert torch.allclose(trained.values, base.values, atol=1e-5)

@@ -536,6 +536,118 @@ def latency(
     return payload
 
 
+@app.function(
+    gpu="L4",
+    volumes={CACHE_DIR: weights_volume, ARTIFACT_DIR: artifact_volume},
+    timeout=6 * 60 * 60,
+)
+def train(
+    artifacts: str,
+    maps: str = "maps",
+    out: str = "residual",
+    hidden: int = 256,
+    steps: int = 2000,
+    inner_steps: int = 4,
+    batch_sequences: int = 2,
+    seq_len: int = 512,
+    learning_rate: float = 1e-3,
+    train_sequences: int = 256,
+    dtype: str = "bfloat16",
+) -> dict:
+    """Train the residual correction against the attention-output objective.
+
+    An L4 rather than something larger: measured at 1.4 s per step, of which
+    1.36 s is the two model forwards that generate the caches. The training
+    itself is 5% of the cost, so paying for a faster card buys almost nothing.
+
+    Args:
+        artifacts: path under the artifact Volume, e.g. ``pair-slug/web``.
+        maps: subdirectory holding the frozen base maps.
+        out: subdirectory to write the trained residual into.
+        hidden: residual bottleneck width.
+        steps: outer steps, each generating a fresh batch of caches.
+        inner_steps: gradient steps per generated batch.
+        batch_sequences: sequences per batch.
+        seq_len: tokens per sequence.
+        learning_rate: peak learning rate for the one-cycle schedule.
+        train_sequences: size of the training corpus, disjoint from calibration.
+        dtype: model dtype.
+
+    Returns:
+        The training report.
+    """
+    import json
+    from pathlib import Path
+
+    import torch
+
+    from kvxfer.data import build_calibration
+    from kvxfer.geometry import load_geometry
+    from kvxfer.mapstore import load_maps
+    from kvxfer.models import load_model, load_tokenizer
+    from kvxfer.solvers.neural import ResidualConfig, ResidualMapper, train_residual
+
+    art = Path(ARTIFACT_DIR) / artifacts
+    manifest = json.loads((art / "manifest.json").read_text())
+    source_id, target_id = manifest["source"], manifest["target"]
+    target_geom = load_geometry(target_id)
+    torch_dtype = getattr(torch, dtype)
+
+    mappers, _ = load_maps(art / maps, target_geom)
+    base = mappers["ridge"]
+    design_dim = base.key_maps[0].dense().shape[0]
+    mapper = ResidualMapper(
+        base.key_maps, base.value_maps, target_geom, design_dim, hidden=hidden
+    )
+    print(
+        f"pair: {source_id} -> {target_id}\n"
+        f"residual: {mapper.n_trained_parameters() / 1e6:.1f}M trained parameters "
+        f"at hidden width {hidden}"
+    )
+
+    tokenizer = load_tokenizer(source_id)
+    corpus = build_calibration(
+        tokenizer, seq_len=seq_len, n_sequences=train_sequences, skip=640
+    )
+    source_model = load_model(source_id, dtype=torch_dtype)
+    target_model = load_model(target_id, dtype=torch_dtype)
+
+    report = train_residual(
+        mapper, source_model, target_model, corpus,
+        ResidualConfig(
+            hidden=hidden, learning_rate=learning_rate, steps=steps,
+            inner_steps=inner_steps, batch_sequences=batch_sequences,
+            seq_len=seq_len,
+        ),
+    )
+    print(f"\n{report}")
+
+    out_dir = art / out
+    out_dir.mkdir(parents=True, exist_ok=True)
+    torch.save(
+        {
+            "key_residual": mapper.key_residual.state_dict(),
+            "value_residual": mapper.value_residual.state_dict(),
+            "hidden": hidden,
+            "design_dim": design_dim,
+        },
+        out_dir / "residual.pt",
+    )
+    payload = {
+        "source": source_id,
+        "target": target_id,
+        "steps": report.steps,
+        "trained_parameters": report.trained_parameters,
+        "initial_loss": report.initial_loss,
+        "final_loss": report.final_loss,
+        "history": report.history,
+    }
+    (out_dir / "training.json").write_text(json.dumps(payload, indent=2))
+    artifact_volume.commit()
+    print(f"wrote {out_dir}")
+    return payload
+
+
 @app.local_entrypoint()
 def main(
     source: str = "Qwen/Qwen3-1.7B",
