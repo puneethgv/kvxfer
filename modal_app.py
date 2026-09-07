@@ -274,6 +274,99 @@ def evaluate(
     return payload
 
 
+@app.function(
+    gpu="L4",
+    volumes={CACHE_DIR: weights_volume, ARTIFACT_DIR: artifact_volume},
+    timeout=2 * 60 * 60,
+)
+def latency(
+    artifacts: str,
+    lengths: str = "512,1024,2048,4096,8192",
+    repeats: int = 5,
+    k: int = 4,
+    lam: float = 1e-3,
+    dtype: str = "bfloat16",
+) -> dict:
+    """Time map-and-inject against letting the target model prefill.
+
+    Needs a GPU and needs it to be the *same* GPU for every condition, which is
+    why this is one function rather than a comparison assembled from separate
+    runs. A speedup measured across two machines measures the machines.
+
+    Args:
+        artifacts: path under the artifact Volume, e.g. ``pair-slug/web``.
+        lengths: comma-separated context lengths in tokens.
+        repeats: timed runs per measurement; the median is reported.
+        k: source layers per target layer.
+        lam: penalty, relative to the design scale.
+        dtype: cache and compute dtype.
+
+    Returns:
+        A serialisable record of every timing.
+    """
+    import json
+    from pathlib import Path
+
+    import torch
+
+    from kvxfer.experiment import ExperimentConfig, fit_mappers
+    from kvxfer.eval.latency import benchmark_lengths
+    from kvxfer.geometry import load_geometry
+    from kvxfer.mappers import FittedMapper
+    from kvxfer.models import load_model
+    from kvxfer.planning import release_memory
+
+    art = Path(ARTIFACT_DIR) / artifacts
+    config = ExperimentConfig(k=k, lam=lam, dtype=dtype)
+    maps, metadata = fit_mappers(art, config)
+    release_memory()
+
+    target_geom = load_geometry(metadata["target"])
+    mapper = FittedMapper(
+        maps["ridge"]["keys"], maps["ridge"]["values"], target_geom, label="ridge"
+    )
+    del maps
+    release_memory()
+
+    torch_dtype = getattr(torch, dtype)
+    target_model = load_model(metadata["target"], dtype=torch_dtype)
+    source_model = load_model(metadata["source"], dtype=torch_dtype)
+
+    print(f"\nlatency: {metadata['source']} -> {metadata['target']}")
+    points = benchmark_lengths(
+        source_model,
+        target_model,
+        mapper,
+        lengths=tuple(int(v) for v in lengths.split(",")),
+        repeats=repeats,
+        dtype=torch_dtype,
+    )
+
+    payload = {
+        "source": metadata["source"],
+        "target": metadata["target"],
+        "gpu": torch.cuda.get_device_name(0) if torch.cuda.is_available() else "cpu",
+        "dtype": dtype,
+        "k": k,
+        "points": [
+            {
+                "n_tokens": p.n_tokens,
+                "target_prefill_ms": p.target_prefill_ms,
+                "source_prefill_ms": p.source_prefill_ms,
+                "map_ms": p.map_ms,
+                "inject_ms": p.inject_ms,
+                "warm_speedup": p.warm_speedup,
+                "cold_speedup": p.cold_speedup,
+            }
+            for p in points
+        ],
+    }
+    (art / "latency.json").write_text(json.dumps(payload, indent=2))
+    artifact_volume.commit()
+    print(f"\nwrote {art / 'latency.json'}")
+    return payload
+
+
 @app.local_entrypoint()
 def main(
     source: str = "Qwen/Qwen3-1.7B",
