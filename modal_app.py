@@ -405,6 +405,7 @@ def fit(
     lam: float = 1e-3,
     rank: int = 0,
     name: str = "maps",
+    dtype: str = "bfloat16",
 ) -> dict:
     """Fit maps once and store them beside the statistics.
 
@@ -439,10 +440,13 @@ def fit(
         k=k,
         lam=lam,
         rank=rank,
-        # float32 on CPU, where bfloat16 matmuls are slow and often emulated.
-        # With a GPU attached for the aligned solver's metrics it costs only
-        # the one forward pass, and the solve is float64 on CPU either way.
-        dtype="float32",
+        # Only the aligned solver loads a model here, for its metrics, and it
+        # loads it in the dtype it is served in. float32 was the earlier
+        # default and is untenable for a large target: Mistral-Nemo is 49 GB of
+        # float32 weights, past both the CPU container's memory and, with a
+        # source model alongside, an 80 GB card. The solve itself is float64 on
+        # CPU regardless of this.
+        dtype=dtype,
         variants=tuple(v for v in variants.split(",") if v.strip()),
     )
     maps, metadata = fit_mappers(art, config)
@@ -678,6 +682,14 @@ def train(
     return payload
 
 
+@app.function(volumes={ARTIFACT_DIR: artifact_volume}, timeout=300)
+def _has_statistics(artifacts: str) -> bool:
+    """Whether a calibration manifest already sits under the artifact path."""
+    from pathlib import Path
+
+    return (Path(ARTIFACT_DIR) / artifacts / "manifest.json").exists()
+
+
 @app.local_entrypoint()
 def big(
     source: str = "mistralai/Ministral-8B-Instruct-2410",
@@ -716,14 +728,22 @@ def big(
     and measure the closed form on its own.
     """
     fetch_weights.remote([source, target])
-    manifest = calibrate.with_options(gpu=gpu).remote(
-        source=source, target=target, layer_stride=layer_stride,
-        passes="split", batch_size=batch_size,
-    )
-    print(f"calibration finished in {manifest['total_seconds']}s")
 
     slug = f"{source.split('/')[-1].lower()}__to__{target.split('/')[-1].lower()}"
-    artifacts = f"{slug}/" + "-".join(sorted(manifest["mixture"]))
+    artifacts = f"{slug}/web"
+
+    # Reuse statistics that already exist. A harvest is the most expensive step
+    # here and it does not change, so a run that failed after it should not pay
+    # for it twice.
+    if _has_statistics.remote(artifacts):
+        print(f"reusing existing statistics at {artifacts}")
+    else:
+        manifest = calibrate.with_options(gpu=gpu).remote(
+            source=source, target=target, layer_stride=layer_stride,
+            passes="split", batch_size=batch_size,
+        )
+        print(f"calibration finished in {manifest['total_seconds']}s")
+        artifacts = f"{slug}/" + "-".join(sorted(manifest["mixture"]))
 
     # Fitting the aligned solver needs the target model for its metrics, so it
     # cannot run on the cheap CPU container the isotropic fit uses.
