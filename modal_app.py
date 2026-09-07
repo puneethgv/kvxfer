@@ -691,6 +691,50 @@ def _has_statistics(artifacts: str) -> bool:
 
 
 @app.local_entrypoint()
+def latency_big(
+    artifacts: str,
+    model: str = "",
+    lengths: str = "512,1024,2048,4096,8192",
+    gpu: str = "A100-80GB",
+    repeats: int = 5,
+) -> None:
+    """Time map-and-inject against vLLM's prefill, both on the same card.
+
+    Both halves have to run on one accelerator for the comparison to mean
+    anything, and for a large pair that accelerator is not the L4 the
+    decorators specify: Mistral-Nemo alone is 22.8 GB against an L4's 22.03.
+
+    Args:
+        artifacts: path under the artifact Volume; its stored maps are reused.
+        model: the target model for the vLLM baseline. Read from the
+            calibration manifest when omitted.
+        lengths: comma-separated context lengths in tokens.
+        gpu: accelerator for both halves.
+        repeats: timed runs per measurement; the median is reported.
+    """
+    transfer = latency.with_options(gpu=gpu).remote(
+        artifacts=artifacts, lengths=lengths, repeats=repeats
+    )
+    baseline = vllm_prefill.with_options(gpu=gpu).remote(
+        model=model or transfer["target"], lengths=lengths, repeats=repeats
+    )
+
+    by_len = {p["n_tokens"]: p for p in baseline["points"]}
+    print(f"\n{transfer['source']} -> {transfer['target']} on {transfer['gpu']}")
+    print(f"{'tokens':>7} {'vLLM prefill':>13} {'map+inject':>11} {'warm':>7} {'cold':>7}")
+    for point in transfer["points"]:
+        warm_ms = point["map_ms"] + point["inject_ms"]
+        cold_ms = warm_ms + point["source_prefill_ms"]
+        vllm_ms = by_len.get(point["n_tokens"], {}).get("prefill_ms")
+        if vllm_ms is None:
+            continue
+        print(
+            f"{point['n_tokens']:>7} {vllm_ms:>12.1f}ms {warm_ms:>10.1f}ms "
+            f"{vllm_ms / warm_ms:>6.2f}x {vllm_ms / cold_ms:>6.2f}x"
+        )
+
+
+@app.local_entrypoint()
 def evaluate_big(
     artifacts: str,
     maps: str = "maps",
