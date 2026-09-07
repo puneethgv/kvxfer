@@ -691,6 +691,35 @@ def _has_statistics(artifacts: str) -> bool:
 
 
 @app.local_entrypoint()
+def evaluate_big(
+    artifacts: str,
+    maps: str = "maps",
+    residual: str = "",
+    tasks: str = "arc_easy,arc_challenge",
+    limit: int = 300,
+    gpu: str = "A100-80GB",
+) -> None:
+    """Evaluate an already-fitted large pair on an accelerator that holds it.
+
+    ``modal run ::evaluate`` takes the accelerator from the decorator, which is
+    an L4. That is 22 GB, and a Ministral-8B to Mistral-Nemo pair is 37.8 GB of
+    weights before anything else, so it cannot run there at all.
+    """
+    payload = evaluate.with_options(gpu=gpu).remote(
+        artifacts=artifacts, maps=maps, residual=residual, tasks=tasks, limit=limit,
+    )
+    print("\nprefix-conditioned perplexity:")
+    for name, result in payload["perplexity"].items():
+        print(f"  {name:10s} ppl={result['perplexity']:.4f}")
+    for task, block in payload["results"].items():
+        print(f"\n{task}:")
+        for name, cond in block["conditions"].items():
+            ret = block["retention"].get(name)
+            print(f"  {name:10s} acc={cond['accuracy']:.4f}"
+                  + (f"  retention={ret:.1%}" if ret is not None else ""))
+
+
+@app.local_entrypoint()
 def big(
     source: str = "mistralai/Ministral-8B-Instruct-2410",
     target: str = "mistralai/Mistral-Nemo-Instruct-2407",
