@@ -1,5 +1,117 @@
 # Results
 
+### Ministral-8B-Instruct-2410 to Mistral-Nemo-Instruct-2407
+
+Calibrated on 131,072 tokens (32,768 held out), k=4 source layers per target layer.
+
+**arc_easy** (300 items)
+
+| condition | accuracy | retention | floor-normalized |
+| --- | --- | --- | --- |
+| target | 0.840 ± 0.021 | — | — |
+| floor | 0.373 ± 0.028 | 44.4% | — |
+| ridge | 0.837 ± 0.021 | 99.6% | 99.3% |
+| whitened | 0.827 ± 0.022 | 98.4% | 97.1% |
+| residual | 0.817 ± 0.022 | 97.2% | 95.0% |
+| source | 0.863 ± 0.020 | 102.8% | 105.0% |
+
+Paired ridge vs whitened: -0.0100 accuracy, exact McNemar p=0.250.
+Paired ridge vs residual: -0.0200 accuracy, exact McNemar p=0.070.
+
+**arc_challenge** (300 items)
+
+| condition | accuracy | retention | floor-normalized |
+| --- | --- | --- | --- |
+| target | 0.577 ± 0.029 | — | — |
+| floor | 0.223 ± 0.024 | 38.7% | — |
+| ridge | 0.537 ± 0.029 | 93.1% | 88.7% |
+| whitened | 0.537 ± 0.029 | 93.1% | 88.7% |
+| residual | 0.537 ± 0.029 | 93.1% | 88.7% |
+| source | 0.537 ± 0.029 | 93.1% | 88.7% |
+
+Paired ridge vs whitened: +0.0000 accuracy, exact McNemar p=1.000.
+Paired ridge vs residual: +0.0000 accuracy, exact McNemar p=1.000.
+
+**Prefix-conditioned perplexity** (primary metric)
+
+| condition | perplexity | mean NLL | stored params |
+| --- | --- | --- | --- |
+| target | 7.3328 | 1.99235 ± 0.04406 | — |
+| floor | 102.0545 | 4.62551 ± 0.08748 | — |
+| ridge | 7.5198 | 2.01754 ± 0.04331 | 335.6M |
+| whitened | 7.5203 | 2.01760 ± 0.04323 | 335.6M |
+| residual | 7.3893 | 2.00004 ± 0.04389 | — |
+| source | 7.7910 | 2.05296 ± 0.04378 | — |
+
+Paired by document, so the comparison is not read off overlapping per-condition error bars:
+
+| comparison | mean NLL difference | t | documents improved |
+| --- | --- | --- | --- |
+| ridge vs whitened | +0.00007 ± 0.00038 | +0.18 | 34/64 |
+| ridge vs residual | -0.01750 ± 0.00289 | -6.05 | 52/64 |
+
+### Held-out fit quality vs. retention
+
+| variant | mean held-out R² (keys) | mean held-out R² (values) |
+| --- | --- | --- |
+| ridge | 0.7837 | 0.6306 |
+| whitened | 0.7835 | 0.6305 |
+
+Read this against the perplexity table rather than on its own. The reference work reports calibration R² anti-correlating with retention (r = -0.20), so a variant leading here is not thereby the better mapper -- that is the claim these runs are set up to check.
+
+### Qwen2.5-1.5B-Instruct to Qwen2.5-3B-Instruct
+
+Calibrated on 131,072 tokens (32,768 held out), k=4 source layers per target layer.
+
+**arc_easy** (300 items)
+
+| condition | accuracy | retention | floor-normalized |
+| --- | --- | --- | --- |
+| target | 0.800 ± 0.023 | — | — |
+| floor | 0.373 ± 0.028 | 46.7% | — |
+| ridge | 0.757 ± 0.025 | 94.6% | 89.8% |
+| whitened | 0.370 ± 0.028 | 46.2% | -0.8% |
+| source | 0.773 ± 0.024 | 96.7% | 93.7% |
+
+Paired ridge vs whitened: -0.3867 accuracy, exact McNemar p=0.000.
+
+**arc_challenge** (300 items)
+
+| condition | accuracy | retention | floor-normalized |
+| --- | --- | --- | --- |
+| target | 0.493 ± 0.029 | — | — |
+| floor | 0.237 ± 0.025 | 48.0% | — |
+| ridge | 0.380 ± 0.028 | 77.0% | 55.8% |
+| whitened | 0.230 ± 0.024 | 46.6% | -2.6% |
+| source | 0.423 ± 0.029 | 85.8% | 72.7% |
+
+Paired ridge vs whitened: -0.1500 accuracy, exact McNemar p=0.000.
+
+**Prefix-conditioned perplexity** (primary metric)
+
+| condition | perplexity | mean NLL | stored params |
+| --- | --- | --- | --- |
+| target | 9.3388 | 2.23418 ± 0.04778 | — |
+| floor | 23.5138 | 3.15759 ± 0.05799 | — |
+| ridge | 10.3773 | 2.33962 ± 0.04892 | 18.9M |
+| whitened | 217586.9403 | 12.29035 ± 0.14904 | 18.9M |
+| source | 10.7305 | 2.37309 ± 0.04612 | — |
+
+Paired by document, so the comparison is not read off overlapping per-condition error bars:
+
+| comparison | mean NLL difference | t | documents improved |
+| --- | --- | --- | --- |
+| ridge vs whitened | +9.95073 ± 0.15900 | +62.58 | 0/64 |
+
+### Held-out fit quality vs. retention
+
+| variant | mean held-out R² (keys) | mean held-out R² (values) |
+| --- | --- | --- |
+| ridge | 0.7294 | 0.5461 |
+| whitened | -10.1092 | 0.5461 |
+
+Read this against the perplexity table rather than on its own. The reference work reports calibration R² anti-correlating with retention (r = -0.20), so a variant leading here is not thereby the better mapper -- that is the claim these runs are set up to check.
+
 ### Qwen3-0.6B to Qwen3-1.7B
 
 Calibrated on 131,072 tokens (32,768 held out), k=4 source layers per target layer.

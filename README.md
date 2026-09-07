@@ -61,6 +61,23 @@ retention does.
 The map reaches 15 TFLOPS of the card's ~121, so roughly 8× of implementation
 headroom remains against a 13.3× FLOP ceiling.
 
+### 2b. It generalizes across families
+
+Three families, no code changes beyond capturing queries from `q_proj` where a
+model has no per-head query norm:
+
+| pair | family | ARC-Easy retention | mapped vs. source |
+|---|---|---|---|
+| Qwen3-0.6B → 1.7B | Qwen3 | 94.6% | **+0.1000** (p = 0.001) |
+| Qwen3-1.7B → 4B | Qwen3 | 87.1% | −0.0067 (p = 0.90) |
+| Qwen3-0.6B → 4B | Qwen3 | 72.5% | +0.0200 (p = 0.55) |
+| Qwen2.5-1.5B → 3B | Qwen2 | 94.6% | −0.0166 |
+| Ministral-8B → Nemo-12B | Mistral | **99.6%** | −0.0266 |
+
+Mismatched RoPE bases cost nothing measurable: the Mistral pair maps between
+θ = 1e8 and θ = 1e6 and still retains 99.6%, which is what the content-space
+design predicts and had never been tested.
+
 ### 3. A trained residual is the only thing that improved on plain ridge
 
 Four closed-form variants failed. The fifth attempt — a small network trained on
@@ -78,6 +95,12 @@ attention-output error rather than reconstruction error — is the first to help
   improved.** It closes **51%** of the gap ridge leaves to the target.
 - **ARC-Challenge: +0.0300 (p = 0.078)**, retention 65.1% → 71.1%.
 - **ARC-Easy: −0.0067 (p = 0.79)** — nothing.
+
+It replicates on Mistral, and more strongly: Ministral-8B → Nemo-12B gives
+−0.01750 ± 0.00289 nats, t = −6.05, 52/64 documents, closing **69.5%** of
+ridge's remaining gap. There too it costs a little ARC accuracy (97.2% against
+ridge's 99.6%), so the dissociation is a property of the method rather than of
+one pair.
 
 So it is a decisive win on generation quality, a marginal one on the harder
 task, and **still short of simply running the source model** on both tasks.
@@ -101,7 +124,7 @@ Any single number here supports a different conclusion about the same artifact.
 
 | attempt | result |
 |---|---|
-| Attention-aligned penalty (`λ/Λⱼ`) | Null on 3 pairs; **α tunes to 0 out of sample**, i.e. the tuned solver *is* ridge |
+| Attention-aligned penalty (`λ/Λⱼ`) | Null on 5 pairs across 3 families; **α tunes to 0 out of sample**, i.e. the tuned solver *is* ridge. On families without per-head query normalization it is not merely useless but destructive: held-out R² of **−10.1** on Qwen2.5 keys, perplexity in six figures |
 | The α family across λ | Monotonically worse; at the selected λ, metric-R² is flat in α while isotropic R² falls |
 | Metric-weighted low-rank | Worse at **every** rank (t = +22.7 at rank 512, 0/64 documents improved) |
 | Rank truncation | Graceful to 512, then collapses: 24.30 ppl at 256, 44.28 at 128, past the 27.33 floor |
