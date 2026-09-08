@@ -1,0 +1,32 @@
+{
+  "model": "Qwen/Qwen3-4B",
+  "engine": "vllm",
+  "vllm_version": "0.11.0",
+  "gpu": "NVIDIA L4",
+  "dtype": "bfloat16",
+  "enable_prefix_caching": false,
+  "note": "Prefix caching is disabled deliberately. With it on, vLLM reported 74.5 ms for 8192 tokens on the L4, below the ~544 ms floor the card's peak throughput allows: it was timing cache hits, not prefills. Each timed run uses a fresh prompt passed as exact prompt_token_ids. Reported value is the median of 5 runs, and covers prefill plus one decoded token.",
+  "source_log": "logs/modal_vllm.log",
+  "points": [
+    {
+      "n_tokens": 512,
+      "prefill_ms": 106.1
+    },
+    {
+      "n_tokens": 1024,
+      "prefill_ms": 175.1
+    },
+    {
+      "n_tokens": 2048,
+      "prefill_ms": 332.9
+    },
+    {
+      "n_tokens": 4096,
+      "prefill_ms": 723.9
+    },
+    {
+      "n_tokens": 8192,
+      "prefill_ms": 1653.0
+    }
+  ]
+}

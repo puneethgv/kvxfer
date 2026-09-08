@@ -1,0 +1,32 @@
+{
+  "model": "mistralai/Mistral-Nemo-Instruct-2407",
+  "engine": "vllm",
+  "vllm_version": "0.11.0",
+  "gpu": "NVIDIA A100 80GB PCIe",
+  "dtype": "bfloat16",
+  "enable_prefix_caching": false,
+  "note": "Prefix caching is disabled deliberately. With it on, vLLM reported 74.5 ms for 8192 tokens on the L4, below the ~544 ms floor the card's peak throughput allows: it was timing cache hits, not prefills. Each timed run uses a fresh prompt passed as exact prompt_token_ids. Reported value is the median of 5 runs, and covers prefill plus one decoded token.",
+  "source_log": "logs/modal_mistral_latency.log",
+  "points": [
+    {
+      "n_tokens": 512,
+      "prefill_ms": 60.4
+    },
+    {
+      "n_tokens": 1024,
+      "prefill_ms": 108.4
+    },
+    {
+      "n_tokens": 2048,
+      "prefill_ms": 202.4
+    },
+    {
+      "n_tokens": 4096,
+      "prefill_ms": 413.4
+    },
+    {
+      "n_tokens": 8192,
+      "prefill_ms": 871.2
+    }
+  ]
+}
