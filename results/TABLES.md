@@ -4,6 +4,8 @@
 
 Calibrated on 131,072 tokens (32,768 held out), k=4 source layers per target layer.
 
+Conditions: floor, residual, ridge, source, target, whitened.
+
 **arc_easy** (300 items)
 
 | condition | accuracy | retention | floor-normalized |
@@ -63,6 +65,8 @@ Read this against the perplexity table rather than on its own. The reference wor
 
 Calibrated on 131,072 tokens (32,768 held out), k=4 source layers per target layer.
 
+Conditions: floor, ridge, source, target, whitened.
+
 **arc_easy** (300 items)
 
 | condition | accuracy | retention | floor-normalized |
@@ -115,6 +119,8 @@ Read this against the perplexity table rather than on its own. The reference wor
 ### Qwen3-0.6B to Qwen3-1.7B
 
 Calibrated on 131,072 tokens (32,768 held out), k=4 source layers per target layer.
+
+Conditions: floor, ridge, source, target, whitened.
 
 **arc_easy** (300 items)
 
@@ -169,6 +175,8 @@ Read this against the perplexity table rather than on its own. The reference wor
 
 Calibrated on 131,072 tokens (32,768 held out), k=4 source layers per target layer.
 
+Conditions: floor, ridge, source, target, whitened.
+
 **arc_easy** (300 items)
 
 | condition | accuracy | retention | floor-normalized |
@@ -222,6 +230,8 @@ Read this against the perplexity table rather than on its own. The reference wor
 
 Calibrated on 131,072 tokens (32,768 held out), k=4 source layers per target layer.
 
+Conditions: floor, ridge, source, target, whitened.
+
 **arc_easy** (300 items)
 
 | condition | accuracy | retention | floor-normalized |
@@ -268,5 +278,59 @@ Paired by document, so the comparison is not read off overlapping per-condition 
 | --- | --- | --- |
 | ridge | 0.6821 | 0.5725 |
 | whitened | 0.6549 | 0.5723 |
+
+Read this against the perplexity table rather than on its own. The reference work reports calibration R² anti-correlating with retention (r = -0.20), so a variant leading here is not thereby the better mapper -- that is the claim these runs are set up to check.
+
+### Qwen3-1.7B to Qwen3-4B (residual run)
+
+Calibrated on 131,072 tokens (32,768 held out), k=4 source layers per target layer.
+
+Conditions: floor, residual, ridge, source, target.
+
+**arc_easy** (300 items)
+
+| condition | accuracy | retention | floor-normalized |
+| --- | --- | --- | --- |
+| target | 0.850 ± 0.021 | — | — |
+| floor | 0.427 ± 0.029 | 50.2% | — |
+| ridge | 0.740 ± 0.025 | 87.1% | 74.0% |
+| residual | 0.733 ± 0.026 | 86.3% | 72.4% |
+| source | 0.747 ± 0.025 | 87.8% | 75.6% |
+
+Paired ridge vs residual: -0.0067 accuracy, exact McNemar p=0.791.
+
+**arc_challenge** (300 items)
+
+| condition | accuracy | retention | floor-normalized |
+| --- | --- | --- | --- |
+| target | 0.497 ± 0.029 | — | — |
+| floor | 0.190 ± 0.023 | 38.3% | — |
+| ridge | 0.323 ± 0.027 | 65.1% | 43.5% |
+| residual | 0.353 ± 0.028 | 71.1% | 53.3% |
+| source | 0.380 ± 0.028 | 76.5% | 62.0% |
+
+Paired ridge vs residual: +0.0300 accuracy, exact McNemar p=0.078.
+
+**Prefix-conditioned perplexity** (primary metric)
+
+| condition | perplexity | mean NLL | stored params |
+| --- | --- | --- | --- |
+| target | 13.5588 | 2.60704 ± 0.04740 | — |
+| floor | 19.6354 | 2.97733 ± 0.06367 | — |
+| ridge | 14.7083 | 2.68841 ± 0.04656 | 302.1M |
+| residual | 14.1079 | 2.64674 ± 0.04711 | — |
+| source | 16.4793 | 2.80210 ± 0.04976 | — |
+
+Paired by document, so the comparison is not read off overlapping per-condition error bars:
+
+| comparison | mean NLL difference | t | documents improved |
+| --- | --- | --- | --- |
+| ridge vs residual | -0.04167 ± 0.00558 | -7.46 | 52/64 |
+
+### Held-out fit quality vs. retention
+
+| variant | mean held-out R² (keys) | mean held-out R² (values) |
+| --- | --- | --- |
+| ridge | 0.6821 | 0.5725 |
 
 Read this against the perplexity table rather than on its own. The reference work reports calibration R² anti-correlating with retention (r = -0.20), so a variant leading here is not thereby the better mapper -- that is the claim these runs are set up to check.

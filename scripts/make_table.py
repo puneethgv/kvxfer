@@ -1,8 +1,15 @@
-"""Render results.json files into the markdown tables used in the writeup.
+"""Render evaluation result files into the markdown tables used in the writeup.
 
 Kept separate from evaluation so that tables are regenerated from committed
 artifacts rather than by re-running experiments, which is what makes the
 reported numbers reproducible from the repository alone.
+
+Every ``results*.json`` under the scanned directory is rendered, not only
+``results.json``. A pair evaluated a second time -- to add the trained residual,
+say -- writes ``results_residual.json`` alongside the first run, and globbing
+the exact name silently dropped it: the residual is the only variant here that
+improved on plain ridge and it was missing from the generated tables entirely.
+The suffix becomes the run label so the two sections stay distinguishable.
 """
 
 from __future__ import annotations
@@ -61,16 +68,42 @@ def format_perplexity(payload: dict) -> str:
     return "\n".join(lines)
 
 
-def format_pair(payload: dict) -> str:
-    """One pair's results as a markdown section."""
+def run_label(path: Path) -> str:
+    """The part of a result filename that distinguishes one run from another.
+
+    ``results.json`` is the unlabelled run; ``results_residual.json`` is the
+    "residual" run of the same pair. Without this the two render as sections
+    with identical headings.
+    """
+    return path.stem.removeprefix("results").lstrip("_").replace("_", " ")
+
+
+def format_pair(payload: dict, label: str = "") -> str:
+    """One pair's results as a markdown section.
+
+    Args:
+        payload: a parsed result file.
+        label: run label from :func:`run_label`, appended to the heading when
+            a pair has more than one result file.
+    """
     source = payload["source"].split("/")[-1]
     target = payload["target"].split("/")[-1]
+    heading = f"### {source} to {target}"
+    if label:
+        heading += f" ({label} run)"
+
+    conditions = sorted(
+        {name for block in payload["results"].values() for name in block["conditions"]}
+        | set(payload.get("perplexity") or {})
+    )
     lines = [
-        f"### {source} to {target}",
+        heading,
         "",
         f"Calibrated on {payload['n_fit_tokens']:,} tokens "
         f"({payload['n_val_tokens']:,} held out), "
         f"k={payload['settings']['k']} source layers per target layer.",
+        "",
+        f"Conditions: {', '.join(conditions)}.",
         "",
     ]
 
@@ -112,13 +145,26 @@ def summarize_r2(payload: dict) -> str:
     quantity fails to predict retention. Reporting both side by side is what
     lets a reader check that claim against these runs.
     """
-    lines = ["### Held-out fit quality vs. retention", "", "| variant | mean held-out R² (keys) | mean held-out R² (values) |", "| --- | --- | --- |"]
+    rows = []
     for variant, diag in payload.get("diagnostics", {}).items():
-        keys = [d["held_out_r2"] for d in diag["keys"].values()]
-        values = [d["held_out_r2"] for d in diag["values"].values()]
-        lines.append(
+        keys = [d["held_out_r2"] for d in diag.get("keys", {}).values()]
+        values = [d["held_out_r2"] for d in diag.get("values", {}).values()]
+        if not keys or not values:
+            # A trained variant has no closed-form diagnostics to report.
+            continue
+        rows.append(
             f"| {variant} | {sum(keys) / len(keys):.4f} | {sum(values) / len(values):.4f} |"
         )
+    if not rows:
+        return ""
+
+    lines = [
+        "### Held-out fit quality vs. retention",
+        "",
+        "| variant | mean held-out R² (keys) | mean held-out R² (values) |",
+        "| --- | --- | --- |",
+        *rows,
+    ]
     lines += [
         "",
         "Read this against the perplexity table rather than on its own. The "
@@ -136,14 +182,21 @@ def main() -> None:
     parser.add_argument("--out", default="results/TABLES.md")
     args = parser.parse_args()
 
-    files = sorted(Path(args.results).rglob("results.json"))
+    files = sorted(Path(args.results).rglob("results*.json"))
     if not files:
-        raise SystemExit(f"no results.json under {args.results}")
+        raise SystemExit(f"no results*.json under {args.results}")
+
+    # Only label a run when its pair has more than one result file, so the
+    # common single-run case keeps a clean heading.
+    per_directory: dict[Path, int] = {}
+    for path in files:
+        per_directory[path.parent] = per_directory.get(path.parent, 0) + 1
 
     sections = ["# Results", ""]
     for path in files:
         payload = json.loads(path.read_text())
-        sections.append(format_pair(payload))
+        label = run_label(path) if per_directory[path.parent] > 1 else ""
+        sections.append(format_pair(payload, label))
         sections.append(format_perplexity(payload))
         sections.append(summarize_r2(payload))
 
