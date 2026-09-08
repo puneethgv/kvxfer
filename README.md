@@ -1,4 +1,4 @@
-# kvxfer — cross-model KV cache transfer, measured honestly
+# kvxfer — cross-model KV cache transfer
 
 Reuse a small model's prefill by *mapping* its KV cache into a larger
 same-family model's format, instead of re-prefilling from scratch.
